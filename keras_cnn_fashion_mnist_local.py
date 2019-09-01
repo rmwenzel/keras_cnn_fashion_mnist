@@ -5,6 +5,7 @@ import os
 import h5py
 import numpy as np
 
+from tensorflow import logging
 from tensorflow.contrib.saved_model import save_keras_model
 from keras.models import Model
 from keras.layers import (Input, Dense, Activation,

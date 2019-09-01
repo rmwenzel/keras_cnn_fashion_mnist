@@ -5,6 +5,7 @@ import os
 import h5py
 import numpy as np
 
+from tensorflow import logging
 from tensorflow.contrib.saved_model import save_keras_model
 from keras.models import Model
 from keras.layers import (Input, Dense, Activation,
@@ -124,9 +125,9 @@ if __name__ == '__main__':
     parser.add_argument('--conv2_pool', type=int, default=2)
     parser.add_argument('--conv2_activation', type=str, default='relu')
 
-    parser.add_argument('--fc0_neurons', type=int, default=256)
+    parser.add_argument('--fc0_neurons', type=int, default=512)
     parser.add_argument('--fc0_activation', type=str, default='relu')
-    parser.add_argument('--fc1_neurons', type=int, default=512)
+    parser.add_argument('--fc1_neurons', type=int, default=256)
     parser.add_argument('--fc1_activation', type=str, default='relu')
 
     # store parameters
