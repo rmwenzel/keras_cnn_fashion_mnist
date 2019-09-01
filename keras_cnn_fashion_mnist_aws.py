@@ -5,8 +5,7 @@ import os
 import h5py
 import numpy as np
 
-from tensorflow import saved_model, logging
-from keras import backend as K
+from tensorflow.contrib.saved_model import save_keras_model
 from keras.models import Model
 from keras.layers import (Input, Dense, Activation,
                           Flatten, BatchNormalization, Conv2D,
@@ -233,4 +232,4 @@ if __name__ == '__main__':
               callbacks=callbacks)
 
     # save Keras model for Tensorflow Serving
-    tf.contrib.saved_model.save_keras_model(model, args.model_dir)
+    save_keras_model(model, model_dir)

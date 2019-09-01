@@ -5,8 +5,7 @@ import os
 import h5py
 import numpy as np
 
-from tensorflow import saved_model, logging
-from keras import backend as K
+from tensorflow.contrib.saved_model import save_keras_model
 from keras.models import Model
 from keras.layers import (Input, Dense, Activation,
                           Flatten, BatchNormalization, Conv2D,
@@ -118,9 +117,9 @@ if __name__ == '__main__':
     parser.add_argument('--conv2_pool', type=int, default=2)
     parser.add_argument('--conv2_activation', type=str, default='relu')
 
-    parser.add_argument('--fc0_neurons', type=int, default=256)
+    parser.add_argument('--fc0_neurons', type=int, default=512)
     parser.add_argument('--fc0_activation', type=str, default='relu')
-    parser.add_argument('--fc1_neurons', type=int, default=512)
+    parser.add_argument('--fc1_neurons', type=int, default=256)
     parser.add_argument('--fc1_activation', type=str, default='relu')
 
     # store parameters
@@ -204,7 +203,7 @@ if __name__ == '__main__':
     best_val_acc = BestValAcc()
 
     # Define callback to save best epoch
-    checkpointer = ModelCheckpoint(filepath=(model_dir+'/'
+    checkpointer = ModelCheckpoint(filepath=(model_dir
                                    + 'fashion-mnist-model.hdf5'),
                                    monitor='val_acc', verbose=1,
                                    save_best_only=True)
@@ -222,7 +221,4 @@ if __name__ == '__main__':
               callbacks=callbacks)
 
     # save Keras model for Tensorflow Serving
-    sess = K.get_session()
-    saved_model.save(sess, os.path.join(model_dir, 'model/1'),
-                     inputs={'inputs': model.input},
-                     outputs={t.name: t for t in model.outputs})
+    save_keras_model(model, model_dir)
