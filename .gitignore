@@ -3,3 +3,9 @@
 .cache
 .bash_history
 .icloud
+.DS_Store
+
+# tf files
+variables.data-00000-of-00001
+variables.index
+saved_model.pb

@@ -6,7 +6,9 @@ import h5py
 import numpy as np
 
 from tensorflow import logging
-from tensorflow.contrib.saved_model import save_keras_model
+from tensorflow.compat.v1.saved_model import simple_save
+
+from keras import backend as K
 from keras.models import Model
 from keras.layers import (Input, Dense, Activation,
                           Flatten, BatchNormalization, Conv2D,
@@ -215,7 +217,7 @@ if __name__ == '__main__':
     best_val_acc = BestValAcc()
 
     # Define callback to save best epoch
-    checkpointer = ModelCheckpoint(filepath=(model_dir+'/'
+    checkpointer = ModelCheckpoint(filepath=('checkpoints/'
                                    + 'fashion-mnist-model.hdf5'),
                                    monitor='val_acc', verbose=1,
                                    save_best_only=True)
@@ -233,4 +235,9 @@ if __name__ == '__main__':
               callbacks=callbacks)
 
     # save Keras model for Tensorflow Serving
-    save_keras_model(model, model_dir)
+    sess = K.get_session()
+    simple_save(
+        sess,
+        os.path.join(model_dir, 'model/1'),
+        inputs={'inputs': model.input},
+        outputs={t.name: t for t in model.outputs})

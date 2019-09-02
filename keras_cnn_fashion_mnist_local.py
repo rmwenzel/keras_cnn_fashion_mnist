@@ -6,12 +6,14 @@ import h5py
 import numpy as np
 
 from tensorflow import logging
-from tensorflow.contrib.saved_model import save_keras_model
+from tensorflow.compat.v1.saved_model import simple_save
+
+from keras import backend as K
 from keras.models import Model
 from keras.layers import (Input, Dense, Activation,
                           Flatten, BatchNormalization, Conv2D,
                           MaxPooling2D, ZeroPadding2D)
-from keras.utils import multi_gpu_model, to_categorical
+from keras.utils import to_categorical
 from keras.callbacks import (Callback, EarlyStopping, ModelCheckpoint,
                              ReduceLROnPlateau)
 
@@ -91,7 +93,7 @@ if __name__ == '__main__':
     # parse model parameters from command line
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--learning-rate', type=float, default=0.01)
     parser.add_argument('--batch-size', type=int, default=128)
 
@@ -204,8 +206,8 @@ if __name__ == '__main__':
     best_val_acc = BestValAcc()
 
     # Define callback to save best epoch
-    checkpointer = ModelCheckpoint(filepath=(model_dir
-                                   + 'fashion-mnist-model.hdf5'),
+    checkpointer = ModelCheckpoint(filepath=('checkpoints'
+                                   + 'keras-model.hdf5'),
                                    monitor='val_acc', verbose=1,
                                    save_best_only=True)
     # Reduce learning rate if accuracy plateaus
@@ -222,4 +224,9 @@ if __name__ == '__main__':
               callbacks=callbacks)
 
     # save Keras model for Tensorflow Serving
-    save_keras_model(model, model_dir)
+    sess = K.get_session()
+    simple_save(
+        sess,
+        os.path.join(model_dir, 'model/1'),
+        inputs={'inputs': model.input},
+        outputs={t.name: t for t in model.outputs})
