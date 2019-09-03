@@ -10,7 +10,7 @@ from tensorflow.compat.v1.saved_model import simple_save
 
 from keras import backend as K
 from keras.models import Model
-from keras.layers import (Input, Dense, Activation,
+from keras.layers import (Input, Dense, Activation, Dropout,
                           Flatten, BatchNormalization, Conv2D,
                           MaxPooling2D, ZeroPadding2D)
 from keras.utils import multi_gpu_model, to_categorical
@@ -63,7 +63,7 @@ def FashionMNISTModel(input_shape, conv_params, fc_params):
     for (i, fc) in enumerate(fc_params):
         n = fc_params[fc][fc + '_neurons']
         act = fc_params[fc][fc + '_activation']
-        X = BatchNormalization(name=fc + '_bn')(X)
+        X = Dropout(0.25)(X)
         X = Dense(n, activation=act, name=fc + '_act')(X)
 
     # create model
@@ -217,15 +217,16 @@ if __name__ == '__main__':
     best_val_acc = BestValAcc()
 
     # Define callback to save best epoch
-    checkpointer = ModelCheckpoint(filepath=os.path.join(os.getcwd()
-                                   + 'checkpoints/keras-model.hdf5'),
+    checkpoint_model = 'weights-improvement-{epoch:02d}-{val_acc:.4f}.hdf5'
+    checkpointer = ModelCheckpoint(os.path.join(model_dir, checkpoint_model),
                                    monitor='val_acc', verbose=1,
                                    save_best_only=True)
+
     # Reduce learning rate if accuracy plateaus
     lrreduce = ReduceLROnPlateau(monitor='val_loss', factor=0.1,
                                  patience=5, verbose=1)
 
-    callbacks = [early_stopping, best_val_acc, checkpointer, lrreduce]
+    callbacks = [early_stopping, best_val_acc, lrreduce]
 
     model.fit(X_train, Y_train,
               batch_size=batch_size,
