@@ -217,8 +217,8 @@ if __name__ == '__main__':
     best_val_acc = BestValAcc()
 
     # Define callback to save best epoch
-    checkpointer = ModelCheckpoint(filepath=('checkpoints/'
-                                   + 'fashion-mnist-model.hdf5'),
+    checkpointer = ModelCheckpoint(filepath=os.path.join(os.getcwd()
+                                   + 'checkpoints/keras-model.hdf5'),
                                    monitor='val_acc', verbose=1,
                                    save_best_only=True)
     # Reduce learning rate if accuracy plateaus
