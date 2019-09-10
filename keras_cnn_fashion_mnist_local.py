@@ -5,7 +5,7 @@ import os
 import h5py
 import numpy as np
 
-from tensorflow import logging
+from tensorflow.logging import set_verbosity
 from tensorflow.compat.v1.saved_model import simple_save
 
 from keras import backend as K
@@ -16,6 +16,7 @@ from keras.layers import (Input, Dense, Activation,
 from keras.utils import to_categorical
 from keras.callbacks import (Callback, EarlyStopping, ModelCheckpoint,
                              ReduceLROnPlateau)
+from warnings import simplefilter
 
 
 def FashionMNISTModel(input_shape, conv_params, fc_params):
@@ -87,8 +88,9 @@ class BestValAcc(Callback):
 
 if __name__ == '__main__':
 
-    # supress tf backend FutureWarnings
-    logging.set_verbosity(logging.ERROR)
+    # supress Tensorflow FutureWarnings
+    set_verbosity(logging.ERROR)
+    simplefilter(action='ignore', category=FutureWarning)
 
     # parse model parameters from command line
     parser = argparse.ArgumentParser()
@@ -206,7 +208,7 @@ if __name__ == '__main__':
     best_val_acc = BestValAcc()
 
     # Define callback to save best epoch
-    checkpoint_model = 'weights-improvement-{epoch:02d}-{val_acc:.4f}.hdf5'
+    checkpoint_model = 'keras-model-epoch-{epoch:02d}-val_acc-{val_acc:.4f}.hdf5'
     checkpointer = ModelCheckpoint(os.path.join(model_dir, checkpoint_model),
                                    monitor='val_acc', verbose=1,
                                    save_best_only=True)
