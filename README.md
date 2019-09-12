@@ -5,7 +5,7 @@ Shallow CNN for Fashion MNIST using Keras and SageMaker
 
 This project contains code and notebooks for training a custom CNN on the [Fashion MNIST](https://github.com/zalandoresearch/fashion-mnist) dataset either locally or in the cloud using Amazon SageMaker.
 
-The CNN is written with Keras and Tensorflow backend, and implemented as a simple class in `keras_cnn.py`.
+The CNN is written with Keras and Tensorflow backend. Generic and Fashion MNIST specific-version are implemented as classes in `cnn.py`.
 
 ## Training scripts
 
@@ -48,7 +48,7 @@ Using [`conda`](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/
 conda env create -f environment.yml
 ```
 
-If you're running anything in a SageMaker notebook instance, you can use the built in `conda_python3` kernel, provided you install
+If you're running anything in a SageMaker notebook instance, you can use the built-in `conda_python3` kernel, provided you install
 `keras` first [^2]
 
 
