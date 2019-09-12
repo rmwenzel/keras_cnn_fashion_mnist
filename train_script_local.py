@@ -2,95 +2,13 @@
 
 import argparse
 import os
-import h5py
-import numpy as np
 
-from tensorflow.logging import set_verbosity
 from tensorflow.compat.v1.saved_model import simple_save
-
 from keras import backend as K
-from keras.models import Model
-from keras.layers import (Input, Dense, Activation,
-                          Flatten, BatchNormalization, Conv2D,
-                          MaxPooling2D, ZeroPadding2D)
-from keras.utils import to_categorical
-from keras.callbacks import (Callback, EarlyStopping, ModelCheckpoint,
-                             ReduceLROnPlateau)
-from warnings import simplefilter
-
-
-def FashionMNISTModel(input_shape, conv_params, fc_params):
-    """
-    Keras model for Fashion MNIST data.
-
-    Parameters
-    ---------
-    input_shape: tuple
-        Shape of image inputs
-
-    Returns
-    -------
-    model: keras.Model()
-        Compiled model for image data, not yet fit.
-
-    """
-    # Input placeholder
-    X_input = Input(input_shape)
-
-    # Pad -> Conv -> Act -> BN -> MaxPool blocks
-    for (i, conv) in enumerate(conv_params):
-        p = conv_params[conv][conv + '_pad']
-        c = conv_params[conv][conv + '_channels']
-        f = conv_params[conv][conv + '_filter']
-        s = conv_params[conv][conv + '_stride']
-        o = conv_params[conv][conv + '_pool']
-        act = conv_params[conv][conv + '_activation']
-        if i == 0:
-            X = ZeroPadding2D((p, p), name=conv + '_pad')(X_input)
-            X = Conv2D(c, (f, f), strides=(s, s), name=conv)(X)
-            X = BatchNormalization(name=conv + '_bn')(X)
-            X = Activation(act, name=conv + '_act')(X)
-            X = MaxPooling2D((o, o), name=conv + '_pool')(X)
-        else:
-            X = ZeroPadding2D((p, p), name=conv + '_pad')(X)
-            X = Conv2D(c, (f, f), strides=(s, s))(X)
-            X = BatchNormalization(name=conv + '_bn')(X)
-            X = Activation(act, name=conv + '_act')(X)
-            X = MaxPooling2D((o, o), name=conv + '_pool')(X)
-
-    X = Flatten()(X)
-
-    # BN -> FullyConnected blocks
-    for (i, fc) in enumerate(fc_params):
-        n = fc_params[fc][fc + '_neurons']
-        act = fc_params[fc][fc + '_activation']
-        X = BatchNormalization(name=fc + '_bn')(X)
-        X = Dense(n, activation=act, name=fc + '_act')(X)
-
-    # create model
-    model = Model(input=X_input, outputs=X, name='FashionMNISTModel')
-
-    return model
-
-
-class BestValAcc(Callback):
-    """Custom callback for logging best validation accuracy."""
-
-    def on_train_begin(self, logs={}):
-        self.val_acc = []
-
-    def on_train_end(self, logs={}):
-        print("best_val_acc:", max(self.val_acc))
-
-    def on_epoch_end(self, batch, logs={}):
-        self.val_acc.append(logs.get('val_acc'))
+from cnn import FashionMNISTCNN
 
 
 if __name__ == '__main__':
-
-    # supress Tensorflow FutureWarnings
-    set_verbosity(logging.ERROR)
-    simplefilter(action='ignore', category=FutureWarning)
 
     # parse model parameters from command line
     parser = argparse.ArgumentParser()
@@ -99,8 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning-rate', type=float, default=0.01)
     parser.add_argument('--batch-size', type=int, default=128)
 
-    # architecture hyperparameters from sagemaker.tuner.HyperparameterTuner
-    # called in notebook keras_cnn_fashion_mnist.ipynb
+    # architecture hyperparameters
     parser.add_argument('--conv0_pad', type=int, default=1)
     parser.add_argument('--conv0_channels', type=int, default=32)
     parser.add_argument('--conv0_filter', type=int, default=3)
@@ -158,73 +75,33 @@ if __name__ == '__main__':
     fc2_params = {'fc2_neurons': 10,
                   'fc2_activation': 'softmax'}
 
-    training_dir = validation_dir = 'data/'
-    model_dir = 'models/'
-
-    # read in train and validation data
-    with h5py.File(os.path.join(training_dir, 'train.hdf5'), 'r') as hf:
-        X_train = np.array(hf['X_train'])
-        Y_train = np.array(hf['Y_train'])
-
-    with h5py.File(os.path.join(validation_dir, 'val.hdf5'), 'r') as hf:
-        X_val = np.array(hf['X_val'])
-        Y_val = np.array(hf['Y_val'])
-
-    # reshape for keras
-    X_train = X_train.reshape(X_train.shape[0], 28, 28, 1)
-    X_val = X_val.reshape(X_val.shape[0], 28, 28, 1)
-    input_shape = (28, 28, 1)
-
-    # Normalize pixel values
-    X_train = X_train.astype('float32')
-    X_val = X_val.astype('float32')
-    X_train /= 255
-    X_val /= 255
-
-    # One-hot encode response
-    Y_train = to_categorical(Y_train, 10)
-    Y_val = to_categorical(Y_val, 10)
-
     # collect layer parameters
     conv_params = {'conv0': conv0_params, 'conv1': conv1_params,
                    'conv2': conv2_params}
     fc_params = {'fc0': fc0_params, 'fc1': fc1_params, 'fc2': fc2_params}
 
-    model = FashionMNISTModel(input_shape, conv_params, fc_params)
+    # create model
+    input_shape = (28, 28, 1)
+    model = FashionMNISTCNN(input_shape, conv_params, fc_params)
 
     print(model.summary())
 
-    model.compile(optimizer='adam',
-                  loss='categorical_crossentropy',
-                  metrics=['accuracy'])
+    # load and prepare data
+    X_train, Y_train, X_val, Y_val = model.load_data()
+    X_train, Y_train, X_val, Y_val = model.prepare_data(X_train, Y_train,
+                                                        X_val, Y_val)
 
-    # Define callback for early stopping
-    early_stopping = EarlyStopping(monitor='val_acc',
-                                   min_delta=0,
-                                   patience=20,
-                                   verbose=1, mode='auto')
+    # set paths
+    training_dir = validation_dir = 'data/'
+    model_dir = 'models/'
 
-    # Custom callback for best validation accuracy for automatic model tuning
-    best_val_acc = BestValAcc()
+    # compile model with defaults
+    model.compile()
 
-    # Define callback to save best epoch
-    checkpoint_model = 'keras-model-epoch-{epoch:02d}-val_acc-{val_acc:.4f}.hdf5'
-    checkpointer = ModelCheckpoint(os.path.join(model_dir, checkpoint_model),
-                                   monitor='val_acc', verbose=1,
-                                   save_best_only=True)
-
-    # Reduce learning rate if accuracy plateaus
-    lrreduce = ReduceLROnPlateau(monitor='val_loss', factor=0.1,
-                                 patience=10, verbose=1)
-
-    callbacks = [early_stopping, best_val_acc, checkpointer, lrreduce]
-
-    model.fit(X_train, Y_train,
+    # fit model
+    model.fit(X_train, Y_train, X_val, Y_val,
               batch_size=batch_size,
-              validation_data=(X_val, Y_val),
-              epochs=epochs,
-              verbose=1,
-              callbacks=callbacks)
+              epochs=epochs)
 
     # save Keras model for Tensorflow Serving
     sess = K.get_session()
