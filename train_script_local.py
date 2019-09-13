@@ -103,10 +103,13 @@ if __name__ == '__main__':
               batch_size=batch_size,
               epochs=epochs)
 
-    # save Keras model for Tensorflow Serving
+    # save Keras model for Tensorflow Serving if it doesn't exist
     sess = K.get_session()
-    simple_save(
-        sess,
-        os.path.join(model_dir, 'model/1'),
-        inputs={'inputs': model.input},
-        outputs={t.name: t for t in model.outputs})
+    try:
+        simple_save(
+            sess,
+            os.path.join(model_dir, 'model/1'),
+            inputs={'inputs': model.input},
+            outputs={t.name: t for t in model.outputs})
+    except AssertionError:
+        pass

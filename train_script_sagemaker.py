@@ -1,4 +1,4 @@
-"""Train Keras CNN on Fashion MNIST o SageMaker."""
+"""Train Keras CNN on Fashion MNIST on SageMaker."""
 
 import argparse
 import os
@@ -6,8 +6,8 @@ import os
 from tensorflow.compat.v1.saved_model import simple_save
 from keras import backend as K
 from keras.utils import multi_gpu_model
-from cnn import FashionMNISTCNN
 
+from cnn import FashionMNISTCNN
 
 if __name__ == '__main__':
 
