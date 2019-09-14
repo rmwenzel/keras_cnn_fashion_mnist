@@ -231,23 +231,23 @@ class FashionMNISTCNN(CNN):
     """
 
     @staticmethod
-    def load_data(data_dir='data/'):
+    def load_data(train_path='data/train.hdf5', valid_path='data/valid.hdf5'):
         """Load MNIST data."""
         # check if data files exist locally
         try:
-            with h5py.File(os.path.join(data_dir, 'train.hdf5'), 'r') as hf:
+            with h5py.File(train_path) as hf:
                 X_train = np.array(hf['X_train'])
                 Y_train = np.array(hf['Y_train'])
-            with h5py.File(os.path.join(data_dir, 'val.hdf5'), 'r') as hf:
+            with h5py.File(valid_path) as hf:
                 X_val = np.array(hf['X_val'])
                 Y_val = np.array(hf['Y_val'])
         # if not get and save locally
-        except OSError:
-            (X_train, Y_train, X_val, Y_val) = fashion_mnist.load_data()
-            with h5py.File(os.path.join(data_dir, 'train.hdf5'), 'w') as hf:
+        except:
+            (X_train, Y_train), (X_val, Y_val) = fashion_mnist.load_data()
+            with h5py.File(train_path, 'w') as hf:
                 hf.create_dataset('X_train', data=X_train)
                 hf.create_dataset('Y_train', data=Y_train)
-            with h5py.File(os.path.join(data_dir, 'val.hdf5'), 'w') as hf:
+            with h5py.File(valid_path, 'w') as hf:
                 hf.create_dataset('X_val', data=X_val)
                 hf.create_dataset('Y_val', data=Y_val)
 
@@ -324,6 +324,8 @@ if __name__ == '__main__':
     lr = args.learning_rate
     batch_size = args.batch_size
     gpu_count = args.gpu_count
+    
+    # if model directory is passed in as hyperparameter use that
     model_dir = args.model_dir
     training_dir = args.training
     validation_dir = args.validation
@@ -364,13 +366,12 @@ if __name__ == '__main__':
     print(model.summary())
 
     # load and prepare data
-    X_train, Y_train, X_val, Y_val = model.load_data()
+    train_path = os.path.join(training_dir, 'train.hdf5')
+    valid_path = os.path.join(validation_dir, 'valid.hdf5')
+    X_train, Y_train, X_val, Y_val = model.load_data(train_path=train_path,
+                                                     valid_path=valid_path)
     X_train, Y_train, X_val, Y_val = model.prepare_data(X_train, Y_train,
                                                         X_val, Y_val)
-
-    # set paths
-    training_dir = validation_dir = 'data/'
-    model_dir = 'models/'
 
     # compile model with defaults
     model.compile()
@@ -381,6 +382,7 @@ if __name__ == '__main__':
 
     # fit model
     model.fit(X_train, Y_train, X_val, Y_val,
+              model_dir=model_dir,
               batch_size=batch_size,
               epochs=epochs)
 

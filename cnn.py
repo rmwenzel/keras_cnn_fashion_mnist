@@ -225,25 +225,24 @@ class FashionMNISTCNN(CNN):
         Dictionary of parameters for fully connected layers
 
     """
-
     @staticmethod
-    def load_data(data_dir='data/'):
+    def load_data(train_path='data/train.hdf5', valid_path='data/valid.hdf5'):
         """Load MNIST data."""
         # check if data files exist locally
         try:
-            with h5py.File(os.path.join(data_dir, 'train.hdf5'), 'r') as hf:
+            with h5py.File(train_path) as hf:
                 X_train = np.array(hf['X_train'])
                 Y_train = np.array(hf['Y_train'])
-            with h5py.File(os.path.join(data_dir, 'val.hdf5'), 'r') as hf:
+            with h5py.File(valid_path) as hf:
                 X_val = np.array(hf['X_val'])
                 Y_val = np.array(hf['Y_val'])
         # if not get and save locally
         except OSError:
-            (X_train, Y_train, X_val, Y_val) = fashion_mnist.load_data()
-            with h5py.File(os.path.join(data_dir, 'train.hdf5'), 'w') as hf:
+            (X_train, Y_train), (X_val, Y_val) = fashion_mnist.load_data()
+            with h5py.File(train_path, 'w') as hf:
                 hf.create_dataset('X_train', data=X_train)
                 hf.create_dataset('Y_train', data=Y_train)
-            with h5py.File(os.path.join(data_dir, 'val.hdf5'), 'w') as hf:
+            with h5py.File(valid_path, 'w') as hf:
                 hf.create_dataset('X_val', data=X_val)
                 hf.create_dataset('Y_val', data=Y_val)
 
