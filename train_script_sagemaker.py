@@ -4,6 +4,8 @@ import argparse
 import os
 import h5py
 import numpy as np
+import pandas as pd
+import boto3
 
 from tensorflow.compat.v1.saved_model import simple_save
 from keras import backend as K
@@ -15,11 +17,11 @@ from keras.callbacks import (Callback, EarlyStopping, ModelCheckpoint,
                              ReduceLROnPlateau)
 from keras.datasets import fashion_mnist
 from keras.utils import to_categorical, multi_gpu_model
-from keras.utils import multi_gpu_model
+
+
 
 # Include classes from cnn.py to avoid import issues
 class BestValAcc(Callback):
-    """Custom callback for logging best validation accuracy."""
 
     def on_train_begin(self, logs={}):
         self.val_acc = []
@@ -30,34 +32,10 @@ class BestValAcc(Callback):
     def on_epoch_end(self, batch, logs={}):
         self.val_acc.append(logs.get('val_acc'))
 
-
+        
 class CNN(Model):
-    """
-    CNN with 3 convolutional layers and 2 fully connected hidden layers.
 
-    Subclass of keras.Model
-
-    Parameters
-    ---------
-    input_shape: tuple
-        Shape of image inputs
-    conv_params: dict, default {}
-        Dictionary of parameters for convolutional layers.
-        If empty default values are used.
-    fc_params: dict, default {}
-        Dictionary of parameters for fully connected layers.
-        If empty default values are used.
-
-    Attributes
-    -------
-    conv_params: dict
-        Dictionary of parameters for convolutional layers
-    fc_params: dict
-        Dictionary of parameters for fully connected layers
-
-    """
-
-    def __init__(self, input_shape, conv_params={}, fc_params={}):
+    def __init__(self, input_shape, conv_params={}, fc_params={}, drop_rate=0.0):
         # param defaults
         conv0_defaults = {'conv0_pad': 1,
                           'conv0_channels': 32,
@@ -128,7 +106,7 @@ class CNN(Model):
                 X = MaxPooling2D((o, o), name=conv + '_pool')(X)
             else:
                 X = ZeroPadding2D((p, p), name=conv + '_pad')(X)
-                X = Conv2D(c, (f, f), strides=(s, s))(X)
+                X = Conv2D(c, (f, f), strides=(s, s), name=conv)(X)
                 X = BatchNormalization(name=conv + '_bn')(X)
                 X = Activation(act, name=conv + '_act')(X)
                 X = MaxPooling2D((o, o), name=conv + '_pool')(X)
@@ -140,7 +118,7 @@ class CNN(Model):
             n = fc_params[fc][fc + '_neurons']
             act = fc_params[fc][fc + '_activation']
             X = BatchNormalization(name=fc + '_bn')(X)
-            X = Dropout(0.1)(X)
+            X = Dropout(drop_rate, name=fc + '_drop')(X)
             X = Dense(n, activation=act, name=fc + '_act')(X)
 
         # create model
@@ -158,103 +136,150 @@ class CNN(Model):
         new_kwargs = {**defaults, **kwargs}
         super().compile(**new_kwargs)
 
-    def fit(self, X_train, Y_train, X_val, Y_val, model_dir='models/',
+    def fit(self, X_train, Y_train, X_val, Y_val, 
+            checks_dir='models/keras_checkpoints',
             early_stop_kwargs={}, checkpoint_kwargs={},
             lrreduce_kwargs={}, **kwargs):
-        """Wrap fit method with defaults."""
-        # Stop training if validation accuracy doesn't improve
-        early_stop_defaults = dict(monitor='val_acc',
-                                   min_delta=0,
-                                   patience=10,
-                                   verbose=1,
-                                   mode='auto')
-        early_stop_kwargs = {**early_stop_defaults, **early_stop_kwargs}
-        early_stopping = EarlyStopping(**early_stop_kwargs)
+            """Wrap fit method with defaults.
 
-        # Save if validation accuracy improves
-        checkpoint_defaults = dict(monitor='val_acc',
-                                   verbose=1,
-                                   save_best_only=True)
-        checkpoint_kwargs = {**checkpoint_defaults, **checkpoint_kwargs}
-        checkpoint_model_name = ('FashionMNISTCNN-epoch-{epoch:02d}' +
-                                 '-val_acc-{val_acc:.4f}.hdf5')
-        path = os.path.join(model_dir, checkpoint_model_name)
-        checkpointer = ModelCheckpoint(path, **checkpoint_kwargs)
+            Parameters
+            ----------
+            X_train: numpy.ndarray
+                Array of training data inputs
+            Y_train: numpy.ndarray
+                Array of training data outputs
+            X_val: numpy.ndarray
+                Array of validation data inputs
+            Y_val: numpy.ndarray
+                Array of validation data outputs
+            checks_dir: str, default 'models/'
+                Path to directory for saving checkpoints
+            early_stop_kwargs: dict, default empty
+                Keyword arguments for early stopping callback
+            checkpoint_stop_kwargs: dict, default empty
+                Keyword arguments for checkpoint callback
+            lrreduce_kwargs: dict, default empty
+                Keyword arguments for reduce learning rate on plateau callback
+            **kwargs:
+                Keyword arguments for keras.Model.fit
 
-        # Reduce learning rate if accuracy plateaus
-        lrreduce_defaults = dict(monitor='val_acc',
-                                 factor=0.1,
-                                 patience=10,
-                                 verbose=1)
-        lrreduce_kwargs = {**lrreduce_defaults, **lrreduce_kwargs}
-        lrreduce = ReduceLROnPlateau(**lrreduce_kwargs)
+            """
+            # Stop training if validation accuracy doesn't improve
+            early_stop_defaults = dict(monitor='val_acc',
+                                       min_delta=0,
+                                       patience=10,
+                                       verbose=1,
+                                       mode='auto')
+            early_stop_kwargs = {**early_stop_defaults, **early_stop_kwargs}
+            early_stopping = EarlyStopping(**early_stop_kwargs)
 
-        # Track best validation accuracy
-        best_val_acc = BestValAcc()
+            # Save if validation accuracy improves
+            checkpoint_defaults = dict(monitor='val_acc',
+                                       verbose=1,
+                                       save_best_only=True,
+                                       save_weights_only=True)
+            checkpoint_kwargs = {**checkpoint_defaults, **checkpoint_kwargs}
+            checkpoint_model_name = ('FashionMNISTCNN-epoch-{epoch:02d}' +
+                                     '-val_acc-{val_acc:.4f}.hdf5')
+            path = os.path.join(checks_dir, checkpoint_model_name)
+            checkpointer = ModelCheckpoint(path, **checkpoint_kwargs)
 
-        callbacks = [early_stopping, best_val_acc, checkpointer,
-                     lrreduce]
+            # Reduce learning rate if accuracy plateaus
+            lrreduce_defaults = dict(monitor='val_acc',
+                                     factor=0.1,
+                                     patience=10,
+                                     verbose=1)
+            lrreduce_kwargs = {**lrreduce_defaults, **lrreduce_kwargs}
+            lrreduce = ReduceLROnPlateau(**lrreduce_kwargs)
 
-        fit_defaults = dict(batch_size=128,
-                            validation_data=(X_val, Y_val),
-                            epochs=1,
-                            verbose=1,
-                            callbacks=callbacks)
-        fit_kwargs = {**fit_defaults, **kwargs}
-        super().fit(X_train, Y_train, **fit_kwargs,)
+            # Track best validation accuracy
+            best_val_acc = BestValAcc()
+
+            callbacks = [early_stopping, best_val_acc, checkpointer,
+                         lrreduce]
+
+            fit_defaults = dict(batch_size=128,
+                                validation_data=(X_val, Y_val),
+                                epochs=1,
+                                verbose=1,
+                                callbacks=callbacks)
+            fit_kwargs = {**fit_defaults, **kwargs}
+            history = super().fit(X_train, Y_train, **fit_kwargs)
+            return history
 
 
 class FashionMNISTCNN(CNN):
-    """
-    Keras CNN with 3 convolutional layers and 2 fully connected hidden layers.
-
-    Subclass of keras.Model
-
-    Parameters
-    ---------
-    input_shape: tuple
-        Shape of image inputs
-    conv_params: dict, default {}
-        Dictionary of parameters for convolutional layers.
-        If empty default values are used.
-    fc_params: dict, default {}
-        Dictionary of parameters for fully connected layers.
-        If empty default values are used.
-
-    Attributes
-    -------
-    conv_params: dict
-        Dictionary of parameters for convolutional layers
-    fc_params: dict
-        Dictionary of parameters for fully connected layers
-
-    """
-
+    
     @staticmethod
-    def load_data(train_path='data/train.hdf5', valid_path='data/valid.hdf5'):
-        """Load MNIST data."""
+    def _create_test_set(X_train, Y_train, test_size=10000, seed=27):
+        # random seed for reproducibility
+        np.random.seed(seed)
+        # create dataframe for convenience
+        train_df = pd.DataFrame(X_train.reshape(X_train.shape[0], 784))
+        train_df['label'] = Y_train
+        # store slices for later concatenation     
+        slices = []
+        # get slices for all the classes
+        for class_label in train_df['label'].unique():
+            # slice all rows for this class
+            class_slice = train_df[train_df['label'] == class_label]
+            # get indices for test rows
+            indices = np.random.choice(class_slice.index.values, 
+                                             size=test_size//10, 
+                                             replace=False)
+            # slice for these indices
+            slices += [class_slice.loc[indices, : ]]
+            # drop rows for these indices 
+            train_df = train_df.drop(index=indices)
+        # collect slices into a dataframe
+        test_df = pd.concat(slices, ignore_index=True)
+        # convert back to numpy arrays
+        X_train = train_df.drop(columns=['label']).values
+        Y_train = train_df['label'].values
+        X_test = test_df.drop(columns=['label']).values
+        Y_test = test_df['label'].values
+        # reshape inputs
+        X_train = X_train.reshape(X_train.shape[0], 28, 28)
+        X_test = X_test.reshape(Y_test.shape[0], 28, 28)
+        # return numpy arrays of values
+        return X_train, Y_train, X_test, Y_test
+    
+    @staticmethod
+    def load_data(train_path='data/train.hdf5', val_path='data/val.hdf5',
+                  test_path='data/test.hdf5'):
+        """Load Fashion MNIST data."""
         # check if data files exist locally
         try:
             with h5py.File(train_path) as hf:
                 X_train = np.array(hf['X_train'])
                 Y_train = np.array(hf['Y_train'])
-            with h5py.File(valid_path) as hf:
+            with h5py.File(val_path) as hf:
                 X_val = np.array(hf['X_val'])
                 Y_val = np.array(hf['Y_val'])
+            with h5py.File(test_path) as hf:
+                X_test = np.array(hf['X_test'])
+                Y_test = np.array(hf['Y_test'])
+                
         # if not get and save locally
         except:
             (X_train, Y_train), (X_val, Y_val) = fashion_mnist.load_data()
+            X_train, Y_train, X_test, Y_test = FashionMNISTCNN._create_test_set(X_train, 
+                                                                                Y_train)
             with h5py.File(train_path, 'w') as hf:
                 hf.create_dataset('X_train', data=X_train)
                 hf.create_dataset('Y_train', data=Y_train)
-            with h5py.File(valid_path, 'w') as hf:
+            with h5py.File(val_path, 'w') as hf:
                 hf.create_dataset('X_val', data=X_val)
                 hf.create_dataset('Y_val', data=Y_val)
+            with h5py.File(test_path, 'w') as hf:
+                hf.create_dataset('X_test', data=X_test)
+                hf.create_dataset('Y_test', data=Y_test)
 
-        return X_train, Y_train, X_val, Y_val
+        return X_train, Y_train, X_val, Y_val, X_test, Y_test
+        
 
     @staticmethod
-    def prepare_data(X_train, Y_train, X_val, Y_val):
+    def prepare_data(X_train, Y_train, X_val, Y_val, X_test=None, Y_test=None):
         """Prepare data for model."""
         # reshape for keras
         X_train = X_train.reshape(X_train.shape[0], 28, 28, 1)
@@ -265,30 +290,69 @@ class FashionMNISTCNN(CNN):
         X_val = X_val.astype('float32')
         X_train /= 255
         X_val /= 255
-
+        
         # One-hot encode image classes
         Y_train = to_categorical(Y_train, 10)
         Y_val = to_categorical(Y_val, 10)
+        
+        if X_test is not None:
+            X_test = X_test.reshape(X_test.shape[0], 28, 28, 1)
+            X_test = X_test.astype('float32')
+            X_test /= 255
+            
+        if Y_test is not None:
+            Y_test = to_categorical(Y_test, 10)
 
-        return X_train, Y_train, X_val, Y_val
+        return X_train, Y_train, X_val, Y_val, X_test, Y_test
+    
+    @staticmethod
+    def upload_checks_to_s3(checks_output_path, checks_dir):
+        """Put keras checkpoints in outside s3 bucket"""
+        s3_resource = boto3.resource('s3')
+        bucket_name = os.path.dirname(checks_output_path).split('//')[1]
+        prefix = os.path.basename(checks_output_path)
+        bucket = s3_resource.Bucket(bucket_name)
 
+        for _, _, files in os.walk(checks_dir):
+            for file in files:
+                file_path = os.path.join(checks_dir, file)
+                with open(file_path, 'rb') as data:
+                    bucket.put_object(Key=os.path.join(prefix, file), Body=data)
 
+    @staticmethod
+    def save_history(history, checks_dir):
+        """Save keras history in checkpoints directory"""
+        # convert the history.history dict to a pandas DataFrame:     
+        history_df = pd.DataFrame(history.history) 
+        history_df['epoch'] = history_df.index + 1
+        # or save to csv: 
+        history_csv_file = 'FashionMNISTCNN-history.csv'
+        path = os.path.join(checks_dir, history_csv_file)
+        with open(path, mode='w') as f:
+            history_df.to_csv(f, index=False)
+    
 if __name__ == '__main__':
 
     # parse model parameters from command line
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--epochs', type=int, default=1)
-    parser.add_argument('--learning-rate', type=float, default=0.01)
-    parser.add_argument('--batch-size', type=int, default=128)
+    parser.add_argument('--batch-size', type=int, default=100)
+    parser.add_argument('--drop-rate', type=float, default=0.0)
+    parser.add_argument('--checks-out-path', type=str, 
+                        default=os.environ.get('SM_MODEL_DIR'))
     parser.add_argument('--gpu-count', type=int,
                         default=os.environ.get('SM_NUM_GPUS'))
-    parser.add_argument('--model-dir', type=str,
+    parser.add_argument('--train', type=str,
+                        default=os.environ.get('SM_CHANNEL_TRAIN'))
+    parser.add_argument('--val', type=str,
+                        default=os.environ.get('SM_CHANNEL_VAL'))
+    parser.add_argument('--test', type=str,
+                        default=os.environ.get('SM_CHANNEL_TEST'))
+    parser.add_argument('--model', type=str,
                         default=os.environ.get('SM_MODEL_DIR'))
-    parser.add_argument('--training', type=str,
-                        default=os.environ.get('SM_CHANNEL_TRAINING'))
-    parser.add_argument('--validation', type=str,
-                        default=os.environ.get('SM_CHANNEL_VALIDATION'))
+    parser.add_argument('--checks', type=str,
+                        default=os.environ.get('SM_CHANNEL_CHECKS'))
 
     # architecture hyperparameters
     parser.add_argument('--conv0_pad', type=int, default=1)
@@ -321,14 +385,16 @@ if __name__ == '__main__':
     args, _ = parser.parse_known_args()
 
     epochs = args.epochs
-    lr = args.learning_rate
     batch_size = args.batch_size
+    drop_rate = args.drop_rate
     gpu_count = args.gpu_count
+    model_dir = args.model
+    train_dir = args.train
+    val_dir = args.val
+    test_dir = args.test
+    checks_dir = args.checks
+    checks_out_path = args.checks_out_path
     
-    # if model directory is passed in as hyperparameter use that
-    model_dir = args.model_dir
-    training_dir = args.training
-    validation_dir = args.validation
     conv0_params = {'conv0_pad': args.conv0_pad,
                     'conv0_channels': args.conv0_channels,
                     'conv0_filter': args.conv0_filter,
@@ -361,17 +427,20 @@ if __name__ == '__main__':
 
     # create model
     input_shape = (28, 28, 1)
-    model = FashionMNISTCNN(input_shape, conv_params, fc_params)
+    model = FashionMNISTCNN(input_shape, conv_params, fc_params, drop_rate)
 
     print(model.summary())
 
     # load and prepare data
-    train_path = os.path.join(training_dir, 'train.hdf5')
-    valid_path = os.path.join(validation_dir, 'valid.hdf5')
-    X_train, Y_train, X_val, Y_val = model.load_data(train_path=train_path,
-                                                     valid_path=valid_path)
-    X_train, Y_train, X_val, Y_val = model.prepare_data(X_train, Y_train,
-                                                        X_val, Y_val)
+    train_path = os.path.join(train_dir, 'train.hdf5')
+    val_path = os.path.join(val_dir, 'val.hdf5')
+    test_path = os.path.join(test_dir, 'test.hdf5')
+
+    X_train, Y_train, X_val, Y_val, _, _ = model.load_data(train_path=train_path,
+                                                           val_path=val_path,
+                                                           test_path=test_path)
+    X_train, Y_train, X_val, Y_val, _, _ = model.prepare_data(X_train, Y_train,
+                                                              X_val, Y_val)
 
     # compile model with defaults
     model.compile()
@@ -381,15 +450,18 @@ if __name__ == '__main__':
         model = multi_gpu_model(model, gpus=gpu_count)
 
     # fit model
-    model.fit(X_train, Y_train, X_val, Y_val,
-              model_dir=model_dir,
+    history = model.fit(X_train, Y_train, X_val, Y_val,
+              checks_dir=checks_dir,
               batch_size=batch_size,
               epochs=epochs)
 
+    # upload Keras checkpoints and history to s3
+    model.save_history(history, checks_dir)
+    model.upload_checks_to_s3(checks_out_path, checks_dir)
+    
     # save Keras model for Tensorflow Serving
     sess = K.get_session()
-    simple_save(
-        sess,
-        os.path.join(model_dir, 'model/1'),
-        inputs={'inputs': model.input},
-        outputs={t.name: t for t in model.outputs})
+    simple_save(sess,
+                os.path.join(model_dir, 'model/1'),
+                inputs={'inputs': model.input},
+                outputs={t.name: t for t in model.outputs})

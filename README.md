@@ -5,13 +5,12 @@ Shallow CNN for Fashion MNIST using Keras and SageMaker
 
 This project contains code and notebooks for training a custom CNN on the [Fashion MNIST](https://github.com/zalandoresearch/fashion-mnist) dataset either locally or in the cloud using Amazon SageMaker.
 
-The CNN is written with Keras and Tensorflow backend. Generic and Fashion MNIST specific-version are implemented as classes in `cnn.py`.
+The CNN is written with Keras and Tensorflow backend. Generic and Fashion MNIST specific-versions are implemented as classes in `cnn.py`.
 
 ## Directories
 
-- `data` - Fashion MNIST data
-- `models` - models saved during local training
-- `sm_output` - Sagemaker job results 
+- `data/` - Fashion MNIST data files
+- `models/keras_checkpoints` - Keras checkpoints 
 
 ## Training scripts
 
@@ -21,18 +20,12 @@ To train the network on your local machine:
 python train_script_local.py
 ```
 
-To train using Amazon SageMaker use `train_script_sagemaker.py` and [script mode](https://github.com/aws-samples/amazon-sagemaker-script-mode).
-This can be done locally or within a SageMaker notebook instance (see [notebooks](#Notebooks) for more details)[^1]
-
+To train in the cloud using Amazon SageMaker use `train_script_sagemaker.py` and [script mode](https://github.com/aws-samples/amazon-sagemaker-script-mode).
+This can be done locally or it can be done in a Sagemaker notebook instance [^1].
 
 ## Notebooks
 
-There is a Jupyter notebook `explore_data_and_model.ipynb` for exploration of the dataset and the model.
-There are two Jupyter notebooks for training the model:
-
-`train_model_local.ipynb`: Train the CNN using local resources, and train using Sagemaker resources from local machine.
-
-`train_model_sagemaker.ipynb`: Train the CNN directly in a Sagemaker notebook instance.
+There are two Jupyter notebooks one for exploration of the dataset and model and another for training, tuning and testing the model using Sagemaker resources.
 
 
 ## Environments.
@@ -57,5 +50,6 @@ If you're running anything in a SageMaker notebook instance, you can use the bui
 `keras` [^2]
 
 
-[^1]: The easiest way to get up and running in a SageMaker notebook instance is probably to fork this repo and link it to the notebook instance.
-[^2]: At the time of writing, this wouldn't work using a Lifecycle configuration due to a timeout, but you can install from the notebooks.
+[^1]: The easiest way to get up and running in a SageMaker notebook instance is probably to fork this repo and link it to the notebook instance. 
+
+[^2]: At the time of writing, this wouldn't work using a Lifecycle configuration due to a timeout, but you can install directly from a Python notebook within the instance using `! conda install --name conda_python3 keras`

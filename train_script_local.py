@@ -16,7 +16,12 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--learning-rate', type=float, default=0.01)
     parser.add_argument('--batch-size', type=int, default=128)
-
+    parser.add_argument('--train', type=str, default='data/')
+    parser.add_argument('--val', type=str, default='data/')
+    parser.add_argument('--test', type=str, default='data/')
+    parser.add_argument('--model', type=str, default='models/')
+    parser.add_argument('--checks', type=str, default='models/keras_checkpoints/')
+    
     # architecture hyperparameters
     parser.add_argument('--conv0_pad', type=int, default=1)
     parser.add_argument('--conv0_channels', type=int, default=32)
@@ -50,6 +55,12 @@ if __name__ == '__main__':
     epochs = args.epochs
     lr = args.learning_rate
     batch_size = args.batch_size
+    train_dir = args.train
+    val_dir = args.val
+    test_dir = args.test
+    model_dir = args.model
+    checks_dir = args.checks
+    
     conv0_params = {'conv0_pad': args.conv0_pad,
                     'conv0_channels': args.conv0_channels,
                     'conv0_filter': args.conv0_filter,
@@ -79,6 +90,8 @@ if __name__ == '__main__':
     conv_params = {'conv0': conv0_params, 'conv1': conv1_params,
                    'conv2': conv2_params}
     fc_params = {'fc0': fc0_params, 'fc1': fc1_params, 'fc2': fc2_params}
+    
+    
 
     # create model
     input_shape = (28, 28, 1)
@@ -87,29 +100,20 @@ if __name__ == '__main__':
     print(model.summary())
 
     # load and prepare data
-    X_train, Y_train, X_val, Y_val = model.load_data()
-    X_train, Y_train, X_val, Y_val = model.prepare_data(X_train, Y_train,
-                                                        X_val, Y_val)
-
-    # set paths
-    training_dir = validation_dir = 'data/'
-    model_dir = 'models/'
+    train_path = os.path.join(train_dir, 'train.hdf5')
+    val_path = os.path.join(val_dir, 'val.hdf5')
+    test_path = os.path.join(test_dir, 'test.hdf5')
+    X_train, Y_train, X_val, Y_val, _, _ = model.load_data(train_path=train_path,
+                                                           val_path=val_path,
+                                                           test_path=test_path)
+    X_train, Y_train, X_val, Y_val, _, _ = model.prepare_data(X_train, Y_train,
+                                                              X_val, Y_val)
 
     # compile model with defaults
     model.compile()
 
     # fit model
     model.fit(X_train, Y_train, X_val, Y_val,
+              checks_dir=checks_dir,
               batch_size=batch_size,
               epochs=epochs)
-
-    # save Keras model for Tensorflow Serving if it doesn't exist
-    sess = K.get_session()
-    try:
-        simple_save(
-            sess,
-            os.path.join(model_dir, 'model/1'),
-            inputs={'inputs': model.input},
-            outputs={t.name: t for t in model.outputs})
-    except AssertionError:
-        pass
