@@ -30,8 +30,6 @@ There are two Jupyter notebooks:
 - `explore_data_and_model.ipynb` -- An introductio to the dataset and default model
 - `train_tune_test.ipynb` - training, tuning and testing the model using Sagemaker resources.
 
-Note `.html` versions of these notebooks are included for viewing convenient since `.ipynb` files don't render nicely on GitHub.
-
 
 ## Environments.
 
