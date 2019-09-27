@@ -25,7 +25,12 @@ This can be done locally or it can be done in a Sagemaker notebook instance [^1]
 
 ## Notebooks
 
-There are two Jupyter notebooks one for exploration of the dataset and model and another for training, tuning and testing the model using Sagemaker resources.
+There are two Jupyter notebooks:
+
+- `explore_data_and_model.ipynb` -- An introductio to the dataset and default model
+- `train_tune_test.ipynb` - training, tuning and testing the model using Sagemaker resources.
+
+Note `.html` versions of these notebooks are included for viewing convenient since `.ipynb` files don't render nicely on GitHub.
 
 
 ## Environments.
