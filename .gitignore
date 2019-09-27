@@ -9,3 +9,7 @@
 variables.data-00000-of-00001
 variables.index
 saved_model.pb
+
+# directories with large files
+data/*
+models/keras_checkpoints/*
