@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Train, tune and test the CNN &middot; Keras CNN for Fashion MNIST
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/keras_cnn_fashion_mnist/public/css/poole.css">
+  <link rel="stylesheet" href="/keras_cnn_fashion_mnist/public/css/syntax.css">
+  <link rel="stylesheet" href="/keras_cnn_fashion_mnist/public/css/lanyon.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=PT+Serif:400,400italic,700%7CPT+Sans:400">
+
+  <!-- Icons
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/keras_cnn_fashion_mnist/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/keras_cnn_fashion_mnist/public/favicon.ico">
+  --->
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+
+  <!--- KaTeX --->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.css" integrity="sha384-yFRtMMDnQtDRO8rLpMIKrtPCD5jdktao2TV19YiZYWMDkUR5GQZR/NOVTdquEx1j" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/katex.min.js" integrity="sha384-9Nhn55MVVN0/4OFx7EE5kpFBPsEMZxKTCnA+4fqDmg12eCTqGi6+BB2LjY8brQxJ" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.10.2/dist/contrib/auto-render.min.js" integrity="sha384-kWPLUVMOks5AQFrykwIup5lo0m3iMkkHrD0uJ4H5cjeGihAutqP0yW0J6dpFiVkI" crossorigin="anonymous"
+      onload="renderMathInElement(document.body);"></script>
+</head>
+
+
+  <body>
+
+    <!-- Target for toggling the sidebar `.sidebar-checkbox` is for regular
+     styles, `#sidebar-checkbox` for behavior. -->
+<input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+<!-- Toggleable sidebar -->
+<div class="sidebar" id="sidebar">
+
+  <nav class="sidebar-nav">
+
+    <a class="sidebar-nav-item" href="/keras_cnn_fashion_mnist/explore_data_and_model/">Explore data and model</a>
+    <a class="sidebar-nav-item active" href="/keras_cnn_fashion_mnist/train_tune_test/">Train, tune, test</a>
+
+  </nav>
+
+  <div class="sidebar-item">
+    <p>
+      &copy; 2019.
+    </p>
+  </div>
+</div>
+
+
+    <!-- Wrap is the content to shift when toggling the sidebar. We wrap the
+         content to avoid any CSS collisions with our real content. -->
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="/keras_cnn_fashion_mnist/" title="Home">Keras CNN for Fashion MNIST</a>
+            <small>Image classification</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+        <div class="page">
+  <h1 class="page-title">Train, tune and test the CNN</h1>
+  	<p><a href="/keras_cnn_fashion_mnist/explore_data_and_model">Previously</a> we explored the Fashion MNIST image data set and the CNN model used to classify these images.</p>
+
+<p>Now we’ll train the model, tune it a bit, and finally test it.</p>
+
+<p>We’re going to use Amazon’s Sagemaker cloud service to overcome local resource limitations.
+We’ll take advantage of its convenient <a href="https://sagemaker.readthedocs.io/en/stable/">Python SDK</a> which manages AWS resources for us behind the scenes. A <a href="https://aws.amazon.com/sagemaker/pricing/instance-types/"><code class="highlighter-rouge">ml.p3.2xlarge</code> instance</a> will significantly speed up training and choosing managed spot instances will yield considerable savings (usually 60-70%).</p>
+
+<h2 id="contents">Contents</h2>
+
+<ul>
+  <li><a href="#setup">Setup</a></li>
+  <li><a href="#training">Training</a>
+    <ul>
+      <li><a href="#setyp-up-s3">Set up s3</a></li>
+      <li><a href="#run-a-single-training-job">Run a single training job</a></li>
+      <li><a href="#evaluate-training-job">Evaluate training job</a>
+        <ul>
+          <li><a href="#download-keras-checkpoints-and-history-from-s3">Download Keras checkpoints and history from s3</a></li>
+          <li><a href="#analyze-training-history">Analyze training history</a></li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li><a href="#tuning">Tuning</a>
+    <ul>
+      <li><a href="#sagemaker-automatic-model-tuning">Sagemaker automatic model tuning</a></li>
+      <li><a href="#analyze-tuning-job-results">Analyze tuning job result</a></li>
+    </ul>
+  </li>
+  <li><a href="#testing">Testing</a></li>
+  <li><a href="#conclusions">Conclusions</a></li>
+</ul>
+
+<h2 id="setup">Setup</h2>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="n">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="n">pd</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sagemaker</span>
+<span class="kn">import</span> <span class="nn">boto3</span>
+<span class="kn">import</span> <span class="nn">h5py</span>
+
+<span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="n">plt</span>
+
+<span class="kn">from</span> <span class="nn">sagemaker.tensorflow</span> <span class="kn">import</span> <span class="n">TensorFlow</span>
+<span class="kn">from</span> <span class="nn">sagemaker.tuner</span> <span class="kn">import</span> <span class="n">IntegerParameter</span><span class="p">,</span> <span class="n">CategoricalParameter</span><span class="p">,</span> <span class="n">ContinuousParameter</span><span class="p">,</span> <span class="n">HyperparameterTuner</span>
+<span class="kn">from</span> <span class="nn">cnn</span> <span class="kn">import</span> <span class="n">FashionMNISTCNN</span> <span class="k">as</span> <span class="n">fmc</span>
+
+<span class="c"># filter out FutureWarnings</span>
+<span class="kn">from</span> <span class="nn">warnings</span> <span class="kn">import</span> <span class="n">simplefilter</span>
+<span class="n">simplefilter</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s">'ignore'</span><span class="p">,</span> <span class="n">category</span><span class="o">=</span><span class="nb">FutureWarning</span><span class="p">)</span>
+
+<span class="c"># Supress Tensorflow Warnings</span>
+<span class="kn">import</span> <span class="nn">tensorflow.compat.v1.logging</span> <span class="k">as</span> <span class="n">logging</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">set_verbosity</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorflow/python/framework/dtypes.py:516: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_qint8 = np.dtype([("qint8", np.int8, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorflow/python/framework/dtypes.py:517: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_quint8 = np.dtype([("quint8", np.uint8, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorflow/python/framework/dtypes.py:518: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_qint16 = np.dtype([("qint16", np.int16, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorflow/python/framework/dtypes.py:519: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_quint16 = np.dtype([("quint16", np.uint16, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorflow/python/framework/dtypes.py:520: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_qint32 = np.dtype([("qint32", np.int32, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorflow/python/framework/dtypes.py:525: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  np_resource = np.dtype([("resource", np.ubyte, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorboard/compat/tensorflow_stub/dtypes.py:541: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_qint8 = np.dtype([("qint8", np.int8, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorboard/compat/tensorflow_stub/dtypes.py:542: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_quint8 = np.dtype([("quint8", np.uint8, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorboard/compat/tensorflow_stub/dtypes.py:543: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_qint16 = np.dtype([("qint16", np.int16, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorboard/compat/tensorflow_stub/dtypes.py:544: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_quint16 = np.dtype([("quint16", np.uint16, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorboard/compat/tensorflow_stub/dtypes.py:545: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  _np_qint32 = np.dtype([("qint32", np.int32, 1)])
+/anaconda3/envs/fashion/lib/python3.7/site-packages/tensorboard/compat/tensorflow_stub/dtypes.py:550: FutureWarning: Passing (type, 1) or '1type' as a synonym of type is deprecated; in a future version of numpy, it will be understood as (type, (1,)) / '(1,)type'.
+  np_resource = np.dtype([("resource", np.ubyte, 1)])
+Using TensorFlow backend.
+</code></pre></div></div>
+
+<h2 id="training">Training</h2>
+
+<p>Sagemaker will run the training script inside a (prebuilt) Docker container and will pull data from an s3 bucket we specify. The container will be torn down on completion of the training job but we can send container files to an s3 bucket before that. In particular, we’ll send the validation accuracy improvement checkpoints and training history generated by our training script <code class="highlighter-rouge">train_script_sagemaker.py</code>.</p>
+
+<p>We’ll use the same s3 bucket for all of this. First we’ll upload local data to the bucket, then create a directory for storing keras checkpoints and history. Finally we’ll specify a path for the “model artifacts” of the training job, i.e. anything saved in the <code class="highlighter-rouge">opt/ml/model</code> directory of the training job container. In our case, this is just the Tensorflow serving model.</p>
+
+<h3 id="set-up-s3">Set up s3</h3>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Session info</span>
+<span class="n">sess</span> <span class="o">=</span> <span class="n">sagemaker</span><span class="o">.</span><span class="n">Session</span><span class="p">()</span>
+<span class="n">role_name</span> <span class="o">=</span> <span class="s">'&lt;YOUR IAM ROLE NAME&gt;'</span>
+<span class="n">bucket_name</span> <span class="o">=</span> <span class="s">'&lt;YOUR BUCKET NAME&gt;'</span>
+
+<span class="c"># upload data to s3</span>
+<span class="n">training_input_path</span>   <span class="o">=</span> <span class="n">sess</span><span class="o">.</span><span class="n">upload_data</span><span class="p">(</span><span class="s">'data/train.hdf5'</span><span class="p">,</span> <span class="n">bucket</span><span class="o">=</span><span class="n">bucket_name</span><span class="p">,</span> <span class="n">key_prefix</span><span class="o">=</span><span class="s">'data'</span><span class="p">)</span>
+<span class="n">validation_input_path</span> <span class="o">=</span> <span class="n">sess</span><span class="o">.</span><span class="n">upload_data</span><span class="p">(</span><span class="s">'data/val.hdf5'</span><span class="p">,</span> <span class="n">bucket</span><span class="o">=</span><span class="n">bucket_name</span><span class="p">,</span> <span class="n">key_prefix</span><span class="o">=</span><span class="s">'data'</span><span class="p">)</span>
+<span class="n">test_input_path</span> <span class="o">=</span> <span class="n">sess</span><span class="o">.</span><span class="n">upload_data</span><span class="p">(</span><span class="s">'data/test.hdf5'</span><span class="p">,</span> <span class="n">bucket</span><span class="o">=</span><span class="n">bucket_name</span><span class="p">,</span> <span class="n">key_prefix</span><span class="o">=</span><span class="s">'data'</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># create checkpoint directory in s3</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s">'models/keras_checkpoints/dummy.txt'</span><span class="p">,</span> <span class="s">'x'</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">'This is a dummy file'</span><span class="p">)</span>
+<span class="k">except</span> <span class="nb">OSError</span><span class="p">:</span>
+    <span class="k">pass</span>
+
+<span class="n">checks_output_path</span> <span class="o">=</span> <span class="n">sess</span><span class="o">.</span><span class="n">upload_data</span><span class="p">(</span><span class="s">'models/keras_checkpoints/dummy.txt'</span><span class="p">,</span> <span class="n">bucket</span><span class="o">=</span><span class="n">bucket_name</span><span class="p">,</span> <span class="n">key_prefix</span><span class="o">=</span><span class="s">'keras-checkpoints'</span><span class="p">)</span>
+<span class="n">checks_output_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">checks_output_path</span><span class="p">)</span>
+
+<span class="c"># s3 path for job output</span>
+<span class="n">job_output_path</span> <span class="o">=</span> <span class="s">'s3://{}/'</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">bucket_name</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h3 id="run-a-single-training-job">Run a single training job</h3>
+
+<p>We’ll run a single Sagemaker training job using the <a href="'./explore_data_and_model.ipynb/#keras-cnn-model-for-classification'">default model</a></p>
+
+<p>We use a <code class="highlighter-rouge">sagemaker.tensorflow.Tensorflow</code> estimator for this training job. We’ll track loss and accuracy metrics for both training and validation data, which keras tracks by default.</p>
+
+<p>Note that our output path for keras checkpoints gets passed in as a hyperparameter.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># objective and metric</span>
+<span class="n">metric_definitions</span> <span class="o">=</span> <span class="p">[{</span><span class="s">'Name'</span><span class="p">:</span> <span class="s">'acc'</span><span class="p">,</span>
+                       <span class="s">'Regex'</span><span class="p">:</span> <span class="s">'acc: ([0-9</span><span class="se">\\</span><span class="s">.]+)'</span><span class="p">},</span>
+                      <span class="p">{</span><span class="s">'Name'</span><span class="p">:</span> <span class="s">'val_acc'</span><span class="p">,</span>
+                       <span class="s">'Regex'</span><span class="p">:</span> <span class="s">'val_acc: ([0-9</span><span class="se">\\</span><span class="s">.]+)'</span><span class="p">},</span>
+                      <span class="p">{</span><span class="s">'Name'</span><span class="p">:</span> <span class="s">'loss'</span><span class="p">,</span>
+                       <span class="s">'Regex'</span><span class="p">:</span> <span class="s">'loss: ([0-9</span><span class="se">\\</span><span class="s">.]+)'</span><span class="p">},</span>
+                      <span class="p">{</span><span class="s">'Name'</span><span class="p">:</span> <span class="s">'val_loss'</span><span class="p">,</span>
+                       <span class="s">'Regex'</span><span class="p">:</span> <span class="s">'val_loss: ([0-9</span><span class="se">\\</span><span class="s">.]+)'</span><span class="p">}]</span>
+
+
+<span class="n">hyperparameters</span> <span class="o">=</span> <span class="p">{</span><span class="s">'epochs'</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s">'batch-size'</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s">'drop-rate'</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span>
+                   <span class="s">'checks-out-path'</span><span class="p">:</span> <span class="n">checks_output_path</span><span class="p">}</span>
+
+<span class="c"># create sagemaker estimator</span>
+<span class="n">tf_estimator</span> <span class="o">=</span> <span class="n">TensorFlow</span><span class="p">(</span><span class="n">entry_point</span><span class="o">=</span><span class="s">'train_script_sagemaker.py'</span><span class="p">,</span> 
+                          <span class="n">role</span><span class="o">=</span><span class="n">role_name</span><span class="p">,</span>
+                          <span class="n">train_volume_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+                          <span class="n">train_instance_count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> 
+                          <span class="n">train_instance_type</span><span class="o">=</span><span class="s">'ml.p3.2xlarge'</span><span class="p">,</span>
+                          <span class="n">train_use_spot_instances</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                          <span class="n">train_max_wait</span><span class="o">=</span><span class="mi">86400</span><span class="p">,</span>
+                          <span class="n">output_path</span><span class="o">=</span><span class="n">job_output_path</span><span class="p">,</span>
+                          <span class="n">framework_version</span><span class="o">=</span><span class="s">'1.14'</span><span class="p">,</span> 
+                          <span class="n">py_version</span><span class="o">=</span><span class="s">'py3'</span><span class="p">,</span>
+                          <span class="n">script_mode</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                          <span class="n">hyperparameters</span><span class="o">=</span><span class="n">hyperparameters</span><span class="p">,</span>
+                          <span class="n">metric_definitions</span><span class="o">=</span><span class="n">metric_definitions</span>
+                         <span class="p">)</span>
+
+<span class="n">paths</span> <span class="o">=</span> <span class="p">{</span><span class="s">'train'</span><span class="p">:</span> <span class="n">training_input_path</span><span class="p">,</span> <span class="s">'val'</span><span class="p">:</span> <span class="n">validation_input_path</span><span class="p">,</span>
+         <span class="s">'test'</span><span class="p">:</span> <span class="n">test_input_path</span><span class="p">,</span> <span class="s">'checks'</span><span class="p">:</span> <span class="n">checks_output_path</span><span class="p">}</span>
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># train estimator asynchronously</span>
+<span class="n">tf_estimator</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">paths</span><span class="p">,</span> <span class="n">wait</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h3 id="evaluate-training-job">Evaluate training job</h3>
+
+<h4 id="download-keras-checkpoints-and-history-from-s3">Download Keras checkpoints and history from s3</h4>
+
+<p>Now we pull the keras checkpoints and history down from s3.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">download_checks_from_s3</span><span class="p">(</span><span class="n">checks_output_path</span><span class="p">):</span>
+    <span class="n">s3_resource</span> <span class="o">=</span> <span class="n">boto3</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s">'s3'</span><span class="p">)</span>
+    <span class="n">bucket_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">checks_output_path</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">'//'</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">prefix</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">checks_output_path</span><span class="p">)</span>
+    <span class="n">bucket</span> <span class="o">=</span> <span class="n">s3_resource</span><span class="o">.</span><span class="n">Bucket</span><span class="p">(</span><span class="n">bucket_name</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">bucket</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="nb">filter</span><span class="p">(</span><span class="n">Prefix</span> <span class="o">=</span> <span class="n">prefix</span><span class="p">):</span>
+        <span class="n">local_dir</span> <span class="o">=</span> <span class="s">'models/keras_checkpoints'</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">local_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">local_dir</span><span class="p">)</span>
+        <span class="n">local_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">local_dir</span><span class="p">,</span> 
+                                  <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">key</span><span class="p">))</span>
+        <span class="n">bucket</span><span class="o">.</span><span class="n">download_file</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">local_file</span><span class="p">)</span>
+
+<span class="c"># delete any preexisting checkpoints</span>
+<span class="err">!</span> <span class="n">rm</span> <span class="n">models</span><span class="o">/</span><span class="n">keras_checkpoints</span><span class="o">/*</span>
+<span class="n">download_checks_from_s3</span><span class="p">(</span><span class="n">checks_output_path</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h4 id="analyze-training-history">Analyze training history</h4>
+
+<p>We’ll plot the keras training history</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">history_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s">'models/keras_checkpoints/FashionMNISTCNN-history.csv'</span><span class="p">)</span>
+<span class="n">history_df</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</code></pre></div></div>
+
+<div>
+  <style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>val_loss</th>
+      <th>val_acc</th>
+      <th>loss</th>
+      <th>acc</th>
+      <th>lr</th>
+      <th>epoch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>0.333004</td>
+      <td>0.8778</td>
+      <td>0.520144</td>
+      <td>0.82050</td>
+      <td>0.001</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>0.263404</td>
+      <td>0.9033</td>
+      <td>0.316812</td>
+      <td>0.88600</td>
+      <td>0.001</td>
+      <td>2</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>0.247057</td>
+      <td>0.9091</td>
+      <td>0.268965</td>
+      <td>0.90370</td>
+      <td>0.001</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.297089</td>
+      <td>0.8980</td>
+      <td>0.240364</td>
+      <td>0.91154</td>
+      <td>0.001</td>
+      <td>4</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>0.251827</td>
+      <td>0.9074</td>
+      <td>0.221876</td>
+      <td>0.92054</td>
+      <td>0.001</td>
+      <td>5</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">plot_history</span><span class="p">(</span><span class="n">history_df</span><span class="p">):</span>
+    <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+    <span class="n">plt</span><span class="o">.</span><span class="n">subplot</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'loss'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">history_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'train_loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'val_loss'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">history_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'val_loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">'Epoch'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">'Loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">'Training and validation loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+    
+    <span class="n">plt</span><span class="o">.</span><span class="n">subplot</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'acc'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">history_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'train_acc'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'val_acc'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">history_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'val_acc'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">'Epoch'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">'Accuracy'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">'Training and validation accuracy'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+    
+<span class="n">plot_history</span><span class="p">(</span><span class="n">history_df</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><img src="/keras_cnn_fashion_mnist/train_tune_test/train_tune_test_files/train_tune_test_19_0.png" alt="png" /></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">acc_max</span> <span class="o">=</span> <span class="n">history_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">history_df</span><span class="p">[</span><span class="s">'acc'</span><span class="p">]</span><span class="o">.</span><span class="n">idxmax</span><span class="p">(),</span> <span class="p">:]</span>
+<span class="k">print</span><span class="p">(</span><span class="s">'Maximum training accuracy epoch: </span><span class="se">\n</span><span class="s">{}'</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">acc_max</span><span class="p">))</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Maximum training accuracy epoch: 
+val_loss     0.275882
+val_acc      0.935300
+loss         0.040384
+acc          0.985260
+lr           0.001000
+epoch       42.000000
+Name: 41, dtype: float64
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">val_acc_max</span> <span class="o">=</span> <span class="n">history_df</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">history_df</span><span class="p">[</span><span class="s">'val_acc'</span><span class="p">]</span><span class="o">.</span><span class="n">idxmax</span><span class="p">(),</span> <span class="p">:]</span>
+<span class="k">print</span><span class="p">(</span><span class="s">'Maximum validation accuracy epoch: </span><span class="se">\n</span><span class="s">{}'</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">val_acc_max</span><span class="p">))</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Maximum validation accuracy epoch: 
+val_loss     0.237604
+val_acc      0.938600
+loss         0.055796
+acc          0.979620
+lr           0.001000
+epoch       32.000000
+Name: 31, dtype: float64
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Validation accuracy epochs in descending order</span>
+<span class="n">history_df</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s">'val_loss'</span><span class="p">,</span> <span class="s">'loss'</span><span class="p">])</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s">'val_acc'</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div>
+  <style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>val_acc</th>
+      <th>acc</th>
+      <th>lr</th>
+      <th>epoch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>31</td>
+      <td>0.9386</td>
+      <td>0.97962</td>
+      <td>0.001</td>
+      <td>32</td>
+    </tr>
+    <tr>
+      <td>40</td>
+      <td>0.9369</td>
+      <td>0.98394</td>
+      <td>0.001</td>
+      <td>41</td>
+    </tr>
+    <tr>
+      <td>23</td>
+      <td>0.9367</td>
+      <td>0.97210</td>
+      <td>0.001</td>
+      <td>24</td>
+    </tr>
+    <tr>
+      <td>38</td>
+      <td>0.9365</td>
+      <td>0.98308</td>
+      <td>0.001</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <td>29</td>
+      <td>0.9357</td>
+      <td>0.97814</td>
+      <td>0.001</td>
+      <td>30</td>
+    </tr>
+    <tr>
+      <td>39</td>
+      <td>0.9356</td>
+      <td>0.98280</td>
+      <td>0.001</td>
+      <td>40</td>
+    </tr>
+    <tr>
+      <td>41</td>
+      <td>0.9353</td>
+      <td>0.98526</td>
+      <td>0.001</td>
+      <td>42</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td>0.9352</td>
+      <td>0.97368</td>
+      <td>0.001</td>
+      <td>25</td>
+    </tr>
+    <tr>
+      <td>36</td>
+      <td>0.9351</td>
+      <td>0.98288</td>
+      <td>0.001</td>
+      <td>37</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>0.9350</td>
+      <td>0.97824</td>
+      <td>0.001</td>
+      <td>31</td>
+    </tr>
+    <tr>
+      <td>33</td>
+      <td>0.9345</td>
+      <td>0.97972</td>
+      <td>0.001</td>
+      <td>34</td>
+    </tr>
+    <tr>
+      <td>34</td>
+      <td>0.9342</td>
+      <td>0.98230</td>
+      <td>0.001</td>
+      <td>35</td>
+    </tr>
+    <tr>
+      <td>32</td>
+      <td>0.9340</td>
+      <td>0.97988</td>
+      <td>0.001</td>
+      <td>33</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>0.9339</td>
+      <td>0.96342</td>
+      <td>0.001</td>
+      <td>19</td>
+    </tr>
+    <tr>
+      <td>28</td>
+      <td>0.9339</td>
+      <td>0.97800</td>
+      <td>0.001</td>
+      <td>29</td>
+    </tr>
+    <tr>
+      <td>27</td>
+      <td>0.9339</td>
+      <td>0.97544</td>
+      <td>0.001</td>
+      <td>28</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>0.9335</td>
+      <td>0.96752</td>
+      <td>0.001</td>
+      <td>21</td>
+    </tr>
+    <tr>
+      <td>22</td>
+      <td>0.9334</td>
+      <td>0.97144</td>
+      <td>0.001</td>
+      <td>23</td>
+    </tr>
+    <tr>
+      <td>26</td>
+      <td>0.9317</td>
+      <td>0.97508</td>
+      <td>0.001</td>
+      <td>27</td>
+    </tr>
+    <tr>
+      <td>37</td>
+      <td>0.9313</td>
+      <td>0.98254</td>
+      <td>0.001</td>
+      <td>38</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>0.9310</td>
+      <td>0.95914</td>
+      <td>0.001</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td>0.9306</td>
+      <td>0.95532</td>
+      <td>0.001</td>
+      <td>15</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>0.9306</td>
+      <td>0.96310</td>
+      <td>0.001</td>
+      <td>18</td>
+    </tr>
+    <tr>
+      <td>21</td>
+      <td>0.9300</td>
+      <td>0.96974</td>
+      <td>0.001</td>
+      <td>22</td>
+    </tr>
+    <tr>
+      <td>35</td>
+      <td>0.9297</td>
+      <td>0.98172</td>
+      <td>0.001</td>
+      <td>36</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>0.9288</td>
+      <td>0.96678</td>
+      <td>0.001</td>
+      <td>20</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>0.9281</td>
+      <td>0.94712</td>
+      <td>0.001</td>
+      <td>12</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>0.9281</td>
+      <td>0.93736</td>
+      <td>0.001</td>
+      <td>9</td>
+    </tr>
+    <tr>
+      <td>25</td>
+      <td>0.9279</td>
+      <td>0.97398</td>
+      <td>0.001</td>
+      <td>26</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td>0.9265</td>
+      <td>0.96062</td>
+      <td>0.001</td>
+      <td>17</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>0.9261</td>
+      <td>0.95488</td>
+      <td>0.001</td>
+      <td>14</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>0.9258</td>
+      <td>0.94466</td>
+      <td>0.001</td>
+      <td>11</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>0.9216</td>
+      <td>0.94084</td>
+      <td>0.001</td>
+      <td>10</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>0.9114</td>
+      <td>0.94970</td>
+      <td>0.001</td>
+      <td>13</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>0.9091</td>
+      <td>0.90370</td>
+      <td>0.001</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>0.9074</td>
+      <td>0.92054</td>
+      <td>0.001</td>
+      <td>5</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>0.9033</td>
+      <td>0.88600</td>
+      <td>0.001</td>
+      <td>2</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>0.9031</td>
+      <td>0.92906</td>
+      <td>0.001</td>
+      <td>7</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>0.9002</td>
+      <td>0.93370</td>
+      <td>0.001</td>
+      <td>8</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.8980</td>
+      <td>0.91154</td>
+      <td>0.001</td>
+      <td>4</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>0.8947</td>
+      <td>0.92276</td>
+      <td>0.001</td>
+      <td>6</td>
+    </tr>
+    <tr>
+      <td>0</td>
+      <td>0.8778</td>
+      <td>0.82050</td>
+      <td>0.001</td>
+      <td>1</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>We note that $93\%$ accuracy first occured roughly during epochs 15-18, and didn’t improve much thereafter.</p>
+
+<p>The last epoch where improvement occured was epoch 32, and since the default model has an early stopping patience of 10 epochs, we know it didn’t improve from epochs 32-42 and training stopped after epoch 42.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Validation loss epochs in descending order</span>
+<span class="n">history_df</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s">'val_acc'</span><span class="p">,</span> <span class="s">'acc'</span><span class="p">])</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s">'val_loss'</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div>
+  <style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>val_loss</th>
+      <th>loss</th>
+      <th>lr</th>
+      <th>epoch</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>14</td>
+      <td>0.200692</td>
+      <td>0.122466</td>
+      <td>0.001</td>
+      <td>15</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>0.204977</td>
+      <td>0.168892</td>
+      <td>0.001</td>
+      <td>9</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>0.206213</td>
+      <td>0.151945</td>
+      <td>0.001</td>
+      <td>11</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>0.206824</td>
+      <td>0.144087</td>
+      <td>0.001</td>
+      <td>12</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>0.207615</td>
+      <td>0.112607</td>
+      <td>0.001</td>
+      <td>16</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>0.212421</td>
+      <td>0.088360</td>
+      <td>0.001</td>
+      <td>21</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>0.214470</td>
+      <td>0.099285</td>
+      <td>0.001</td>
+      <td>19</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>0.216433</td>
+      <td>0.124686</td>
+      <td>0.001</td>
+      <td>14</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td>0.220042</td>
+      <td>0.107955</td>
+      <td>0.001</td>
+      <td>17</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>0.221858</td>
+      <td>0.100688</td>
+      <td>0.001</td>
+      <td>18</td>
+    </tr>
+    <tr>
+      <td>22</td>
+      <td>0.223961</td>
+      <td>0.078725</td>
+      <td>0.001</td>
+      <td>23</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>0.223996</td>
+      <td>0.162515</td>
+      <td>0.001</td>
+      <td>10</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td>0.224511</td>
+      <td>0.073269</td>
+      <td>0.001</td>
+      <td>25</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>0.229332</td>
+      <td>0.091966</td>
+      <td>0.001</td>
+      <td>20</td>
+    </tr>
+    <tr>
+      <td>21</td>
+      <td>0.231225</td>
+      <td>0.082998</td>
+      <td>0.001</td>
+      <td>22</td>
+    </tr>
+    <tr>
+      <td>23</td>
+      <td>0.231908</td>
+      <td>0.076089</td>
+      <td>0.001</td>
+      <td>24</td>
+    </tr>
+    <tr>
+      <td>27</td>
+      <td>0.236227</td>
+      <td>0.065881</td>
+      <td>0.001</td>
+      <td>28</td>
+    </tr>
+    <tr>
+      <td>31</td>
+      <td>0.237604</td>
+      <td>0.055796</td>
+      <td>0.001</td>
+      <td>32</td>
+    </tr>
+    <tr>
+      <td>26</td>
+      <td>0.241979</td>
+      <td>0.068059</td>
+      <td>0.001</td>
+      <td>27</td>
+    </tr>
+    <tr>
+      <td>29</td>
+      <td>0.243946</td>
+      <td>0.061642</td>
+      <td>0.001</td>
+      <td>30</td>
+    </tr>
+    <tr>
+      <td>32</td>
+      <td>0.244725</td>
+      <td>0.055597</td>
+      <td>0.001</td>
+      <td>33</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>0.247057</td>
+      <td>0.268965</td>
+      <td>0.001</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>0.251827</td>
+      <td>0.221876</td>
+      <td>0.001</td>
+      <td>5</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>0.252233</td>
+      <td>0.061005</td>
+      <td>0.001</td>
+      <td>31</td>
+    </tr>
+    <tr>
+      <td>33</td>
+      <td>0.255708</td>
+      <td>0.055532</td>
+      <td>0.001</td>
+      <td>34</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>0.255919</td>
+      <td>0.135069</td>
+      <td>0.001</td>
+      <td>13</td>
+    </tr>
+    <tr>
+      <td>40</td>
+      <td>0.256263</td>
+      <td>0.045249</td>
+      <td>0.001</td>
+      <td>41</td>
+    </tr>
+    <tr>
+      <td>25</td>
+      <td>0.256528</td>
+      <td>0.070083</td>
+      <td>0.001</td>
+      <td>26</td>
+    </tr>
+    <tr>
+      <td>39</td>
+      <td>0.258491</td>
+      <td>0.046385</td>
+      <td>0.001</td>
+      <td>40</td>
+    </tr>
+    <tr>
+      <td>36</td>
+      <td>0.258976</td>
+      <td>0.047897</td>
+      <td>0.001</td>
+      <td>37</td>
+    </tr>
+    <tr>
+      <td>34</td>
+      <td>0.259441</td>
+      <td>0.048968</td>
+      <td>0.001</td>
+      <td>35</td>
+    </tr>
+    <tr>
+      <td>37</td>
+      <td>0.261749</td>
+      <td>0.047258</td>
+      <td>0.001</td>
+      <td>38</td>
+    </tr>
+    <tr>
+      <td>28</td>
+      <td>0.262236</td>
+      <td>0.060982</td>
+      <td>0.001</td>
+      <td>29</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>0.263404</td>
+      <td>0.316812</td>
+      <td>0.001</td>
+      <td>2</td>
+    </tr>
+    <tr>
+      <td>38</td>
+      <td>0.264150</td>
+      <td>0.045217</td>
+      <td>0.001</td>
+      <td>39</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>0.272420</td>
+      <td>0.194994</td>
+      <td>0.001</td>
+      <td>7</td>
+    </tr>
+    <tr>
+      <td>41</td>
+      <td>0.275882</td>
+      <td>0.040384</td>
+      <td>0.001</td>
+      <td>42</td>
+    </tr>
+    <tr>
+      <td>35</td>
+      <td>0.279350</td>
+      <td>0.050247</td>
+      <td>0.001</td>
+      <td>36</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>0.285503</td>
+      <td>0.182704</td>
+      <td>0.001</td>
+      <td>8</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>0.295849</td>
+      <td>0.209872</td>
+      <td>0.001</td>
+      <td>6</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.297089</td>
+      <td>0.240364</td>
+      <td>0.001</td>
+      <td>4</td>
+    </tr>
+    <tr>
+      <td>0</td>
+      <td>0.333004</td>
+      <td>0.520144</td>
+      <td>0.001</td>
+      <td>1</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>We also note that validation loss was also at an absolute minimum at epoch 14, so here is likely where the model begins to overfit.</p>
+
+<h2 id="tuning">Tuning</h2>
+
+<h3 id="sagemaker-automatic-model-tuning">Sagemaker automatic model tuning</h3>
+
+<p>We’ll use Sagemaker’s built-in hyperparameter optimization to try to find a model 
+with better validation accuracy. We’ll use the (default) Bayesian strategy to search the hyperparameter space efficiently.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># architecture hyperparameter spaces</span>
+<span class="n">conv0_hps</span> <span class="o">=</span> <span class="p">{</span><span class="s">'conv0_pad'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+             <span class="s">'conv0_channels'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">24</span><span class="p">,</span> <span class="mi">32</span><span class="p">),</span>
+             <span class="s">'conv0_filter'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+             <span class="s">'conv0_stride'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+             <span class="s">'conv0_pool'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+            <span class="p">}</span>
+<span class="n">conv1_hps</span> <span class="o">=</span> <span class="p">{</span><span class="s">'conv1_pad'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+             <span class="s">'conv1_channels'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">48</span><span class="p">,</span> <span class="mi">64</span><span class="p">),</span>
+             <span class="s">'conv1_filter'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+             <span class="s">'conv1_stride'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+             <span class="s">'conv1_pool'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+            <span class="p">}</span>
+<span class="n">conv2_hps</span> <span class="o">=</span> <span class="p">{</span><span class="s">'conv2_pad'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+             <span class="s">'conv2_channels'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">96</span><span class="p">,</span> <span class="mi">128</span><span class="p">),</span>
+             <span class="s">'conv2_filter'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+             <span class="s">'conv2_stride'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+             <span class="s">'conv2_pool'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+            <span class="p">}</span>
+<span class="n">fc0_hps</span> <span class="o">=</span> <span class="p">{</span><span class="s">'fc0_neurons'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">300</span><span class="p">)}</span>
+<span class="n">fc1_hps</span> <span class="o">=</span> <span class="p">{</span><span class="s">'fc1_neurons'</span><span class="p">:</span> <span class="n">IntegerParameter</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">300</span><span class="p">)}</span>
+
+<span class="n">hyperparameter_ranges</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">conv0_hps</span><span class="p">,</span> <span class="o">**</span><span class="n">conv1_hps</span><span class="p">,</span> <span class="o">**</span><span class="n">conv2_hps</span><span class="p">,</span> <span class="o">**</span><span class="n">fc0_hps</span><span class="p">,</span> <span class="o">**</span><span class="n">fc1_hps</span><span class="p">}</span>
+
+<span class="c"># objective and metric</span>
+<span class="n">objective_metric_name</span> <span class="o">=</span> <span class="s">'val_acc'</span>
+<span class="n">objective_type</span> <span class="o">=</span> <span class="s">'Maximize'</span>
+<span class="n">metric_definitions</span> <span class="o">=</span> <span class="p">[{</span><span class="s">'Name'</span><span class="p">:</span> <span class="s">'val_acc'</span><span class="p">,</span>
+                       <span class="s">'Regex'</span><span class="p">:</span> <span class="s">'best_val_acc: ([0-9</span><span class="se">\\</span><span class="s">.]+)'</span><span class="p">}]</span>
+
+<span class="c"># tuner</span>
+<span class="n">tuner</span> <span class="o">=</span> <span class="n">HyperparameterTuner</span><span class="p">(</span><span class="n">tf_estimator</span><span class="p">,</span>
+                            <span class="n">objective_metric_name</span><span class="p">,</span>
+                            <span class="n">hyperparameter_ranges</span><span class="p">,</span>
+                            <span class="n">metric_definitions</span><span class="p">,</span>
+                            <span class="n">max_jobs</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+                            <span class="n">max_parallel_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                            <span class="n">objective_type</span><span class="o">=</span><span class="n">objective_type</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">tuner</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">paths</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h3 id="analyze-tuning-job-results">Analyze tuning job results</h3>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># tuning job results dataframe</span>
+<span class="n">tuning_job_df</span> <span class="o">=</span> <span class="n">tuner</span><span class="o">.</span><span class="n">analytics</span><span class="p">()</span><span class="o">.</span><span class="n">dataframe</span><span class="p">()</span>
+<span class="n">tuning_job_df</span>
+</code></pre></div></div>
+
+<div>
+  <style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>conv0_channels</th>
+      <th>conv0_filter</th>
+      <th>conv0_pad</th>
+      <th>conv0_pool</th>
+      <th>conv0_stride</th>
+      <th>conv1_channels</th>
+      <th>conv1_filter</th>
+      <th>conv1_pad</th>
+      <th>conv1_pool</th>
+      <th>conv1_stride</th>
+      <th>...</th>
+      <th>conv2_pool</th>
+      <th>conv2_stride</th>
+      <th>fc0_neurons</th>
+      <th>fc1_neurons</th>
+      <th>TrainingJobName</th>
+      <th>TrainingJobStatus</th>
+      <th>FinalObjectiveValue</th>
+      <th>TrainingStartTime</th>
+      <th>TrainingEndTime</th>
+      <th>TrainingElapsedTimeSeconds</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>24.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>64.0</td>
+      <td>2.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>...</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>216.0</td>
+      <td>267.0</td>
+      <td>tensorflow-training-190920-1614-010-2339cf4b</td>
+      <td>Completed</td>
+      <td>0.9104</td>
+      <td>2019-09-20 17:23:39-07:00</td>
+      <td>2019-09-20 17:33:02-07:00</td>
+      <td>563.0</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>29.0</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>54.0</td>
+      <td>4.0</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>...</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>261.0</td>
+      <td>218.0</td>
+      <td>tensorflow-training-190920-1614-009-61a0d8ce</td>
+      <td>Completed</td>
+      <td>0.9235</td>
+      <td>2019-09-20 17:11:08-07:00</td>
+      <td>2019-09-20 17:20:00-07:00</td>
+      <td>532.0</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>26.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>1.0</td>
+      <td>3.0</td>
+      <td>55.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>2.0</td>
+      <td>...</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>204.0</td>
+      <td>233.0</td>
+      <td>tensorflow-training-190920-1614-008-98054b92</td>
+      <td>Failed</td>
+      <td>NaN</td>
+      <td>2019-09-20 17:07:44-07:00</td>
+      <td>2019-09-20 17:08:55-07:00</td>
+      <td>71.0</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>26.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>1.0</td>
+      <td>3.0</td>
+      <td>55.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>2.0</td>
+      <td>...</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>205.0</td>
+      <td>233.0</td>
+      <td>tensorflow-training-190920-1614-007-075957e0</td>
+      <td>Failed</td>
+      <td>NaN</td>
+      <td>2019-09-20 17:04:15-07:00</td>
+      <td>2019-09-20 17:05:29-07:00</td>
+      <td>74.0</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>27.0</td>
+      <td>4.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>63.0</td>
+      <td>4.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>3.0</td>
+      <td>...</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>225.0</td>
+      <td>300.0</td>
+      <td>tensorflow-training-190920-1614-006-b2bfc6ce</td>
+      <td>Failed</td>
+      <td>NaN</td>
+      <td>2019-09-20 17:00:31-07:00</td>
+      <td>2019-09-20 17:01:49-07:00</td>
+      <td>78.0</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>27.0</td>
+      <td>4.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>63.0</td>
+      <td>4.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>3.0</td>
+      <td>...</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>224.0</td>
+      <td>299.0</td>
+      <td>tensorflow-training-190920-1614-005-f7d4ee53</td>
+      <td>Failed</td>
+      <td>NaN</td>
+      <td>2019-09-20 16:56:32-07:00</td>
+      <td>2019-09-20 16:58:06-07:00</td>
+      <td>94.0</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>32.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>58.0</td>
+      <td>4.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>3.0</td>
+      <td>...</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>253.0</td>
+      <td>234.0</td>
+      <td>tensorflow-training-190920-1614-004-527c5a6e</td>
+      <td>Completed</td>
+      <td>0.9057</td>
+      <td>2019-09-20 16:50:07-07:00</td>
+      <td>2019-09-20 16:54:22-07:00</td>
+      <td>255.0</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>28.0</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>2.0</td>
+      <td>48.0</td>
+      <td>2.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>3.0</td>
+      <td>...</td>
+      <td>3.0</td>
+      <td>2.0</td>
+      <td>249.0</td>
+      <td>242.0</td>
+      <td>tensorflow-training-190920-1614-003-9198b56d</td>
+      <td>Completed</td>
+      <td>0.8105</td>
+      <td>2019-09-20 16:36:50-07:00</td>
+      <td>2019-09-20 16:46:35-07:00</td>
+      <td>585.0</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>27.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>51.0</td>
+      <td>3.0</td>
+      <td>3.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>...</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>275.0</td>
+      <td>271.0</td>
+      <td>tensorflow-training-190920-1614-002-eb3e96e1</td>
+      <td>Completed</td>
+      <td>0.8946</td>
+      <td>2019-09-20 16:27:11-07:00</td>
+      <td>2019-09-20 16:33:21-07:00</td>
+      <td>370.0</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>31.0</td>
+      <td>2.0</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>57.0</td>
+      <td>4.0</td>
+      <td>2.0</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>...</td>
+      <td>2.0</td>
+      <td>3.0</td>
+      <td>214.0</td>
+      <td>279.0</td>
+      <td>tensorflow-training-190920-1614-001-f2b7ac23</td>
+      <td>Completed</td>
+      <td>0.8983</td>
+      <td>2019-09-20 16:16:17-07:00</td>
+      <td>2019-09-20 16:23:07-07:00</td>
+      <td>410.0</td>
+    </tr>
+  </tbody>
+</table>
+  <p>10 rows × 23 columns</p>
+</div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">tuning_job_df</span><span class="p">[</span><span class="s">'TrainingJobStatus'</span><span class="p">]</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>0    Completed
+1    Completed
+2       Failed
+3       Failed
+4       Failed
+5       Failed
+6    Completed
+7    Completed
+8    Completed
+9    Completed
+Name: TrainingJobStatus, dtype: object
+</code></pre></div></div>
+
+<p>We note that 4 out of 10 of the jobs failed. After inspecting the <a href="console.aws.amazon.com/cloudwatch/home">CloudWatch job logs</a>, we found that this was due to inappropropriate hyperparameter range choices leading to negative dimension errors.</p>
+
+<p>This seems especially problematic if Bayesian optimization is driving the search towards incompatible values of the hyperparameters – training jobs would be more likely to fail and it would be harder to leave a region of hyperparameter space where such failure is likely. Greater care should be taken to avoide incompatible choices of hyperparameters.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">tuning_job_df</span><span class="p">[</span><span class="s">'FinalObjectiveValue'</span><span class="p">]</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">ascending</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>1    0.9235
+0    0.9104
+6    0.9057
+9    0.8983
+8    0.8946
+7    0.8105
+2       NaN
+3       NaN
+4       NaN
+5       NaN
+Name: FinalObjectiveValue, dtype: float64
+</code></pre></div></div>
+
+<p>Although the validation accuracy improved from job to job, none of the models thus trained achieved a validation accuracy better than the default model,</p>
+
+<h2 id="testing">Testing</h2>
+
+<p>In the end, the default model hyperparameters seemed to be a good option. We’ll check the test set performance of the sequence of models learned during <a href="#Run-a-single-training-job">that training job</a>.</p>
+
+<p>As <a href="#Analyze-training-history">previously observed</a>, we expect that weights from this period will perform best on test data, and will be a sound choice for a final model.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="err">!</span> <span class="n">ls</span> <span class="n">models</span><span class="o">/</span><span class="n">keras_checkpoints</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>FashionMNISTCNN-epoch-01-val_acc-0.8778.hdf5
+FashionMNISTCNN-epoch-02-val_acc-0.9033.hdf5
+FashionMNISTCNN-epoch-03-val_acc-0.9091.hdf5
+FashionMNISTCNN-epoch-09-val_acc-0.9281.hdf5
+FashionMNISTCNN-epoch-12-val_acc-0.9281.hdf5
+FashionMNISTCNN-epoch-15-val_acc-0.9306.hdf5
+FashionMNISTCNN-epoch-16-val_acc-0.9310.hdf5
+FashionMNISTCNN-epoch-19-val_acc-0.9339.hdf5
+FashionMNISTCNN-epoch-24-val_acc-0.9367.hdf5
+FashionMNISTCNN-epoch-32-val_acc-0.9386.hdf5
+FashionMNISTCNN-history.csv
+dummy.txt
+</code></pre></div></div>
+
+<p>We’ll evaluate all models between epochs 15-32</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">epoch_and_val_acc_from_file_name</span><span class="p">(</span><span class="n">model_file</span><span class="p">):</span>
+    <span class="n">model_file</span> <span class="o">=</span> <span class="n">model_file</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s">'FashionMNISTCNN-'</span><span class="p">)</span>
+    <span class="n">model_file</span> <span class="o">=</span> <span class="n">model_file</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">'.hdf5'</span><span class="p">)</span>
+    <span class="n">model_file</span> <span class="o">=</span> <span class="n">model_file</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">'-'</span><span class="p">)</span>
+    <span class="n">epoch</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">model_file</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">val_acc</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">model_file</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">epoch</span><span class="p">,</span> <span class="n">val_acc</span>
+
+<span class="k">def</span> <span class="nf">get_models_from_dir</span><span class="p">(</span><span class="n">model_dir</span><span class="p">,</span> <span class="n">epoch_range</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">28</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">drop_rate</span><span class="o">=</span><span class="mf">0.50</span><span class="p">):</span>
+    <span class="n">models</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">model_files</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">model_dir</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">model_file</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">model_files</span><span class="p">):</span>
+            <span class="k">if</span> <span class="s">'.hdf5'</span> <span class="ow">in</span> <span class="n">model_file</span><span class="p">:</span>
+                <span class="n">epoch</span><span class="p">,</span> <span class="n">val_acc</span> <span class="o">=</span> <span class="n">epoch_and_val_acc_from_file_name</span><span class="p">(</span><span class="n">model_file</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="n">epoch_range</span><span class="p">:</span>
+                    <span class="n">model</span> <span class="o">=</span> <span class="n">fmc</span><span class="p">(</span><span class="n">input_shape</span><span class="o">=</span><span class="n">input_shape</span><span class="p">,</span> <span class="n">drop_rate</span><span class="o">=</span><span class="n">drop_rate</span><span class="p">)</span>
+                    <span class="n">model</span><span class="o">.</span><span class="n">load_weights</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">model_dir</span><span class="p">,</span> <span class="n">model_file</span><span class="p">))</span>
+                    <span class="n">model</span><span class="o">.</span><span class="nb">compile</span><span class="p">(</span><span class="n">optimizer</span><span class="o">=</span><span class="s">'adam'</span><span class="p">,</span> <span class="n">loss</span><span class="o">=</span><span class="s">'categorical_crossentropy'</span><span class="p">,</span> <span class="n">metrics</span><span class="o">=</span><span class="p">[</span><span class="s">'accuracy'</span><span class="p">])</span>
+                    <span class="n">models</span><span class="p">[</span><span class="n">epoch</span><span class="p">]</span> <span class="o">=</span> <span class="n">model</span>
+    <span class="k">return</span> <span class="n">models</span>
+
+<span class="k">def</span> <span class="nf">model_eval_df</span><span class="p">(</span><span class="n">models</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">):</span>
+    <span class="n">losses</span><span class="p">,</span> <span class="n">accs</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="n">models</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">"Evaluating epoch {} model:</span><span class="se">\n</span><span class="s">"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">epoch</span><span class="p">))</span>
+        <span class="n">loss</span><span class="p">,</span> <span class="n">acc</span> <span class="o">=</span> <span class="n">models</span><span class="p">[</span><span class="n">epoch</span><span class="p">]</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">Y</span><span class="p">)</span>
+        <span class="n">losses</span> <span class="o">+=</span> <span class="p">[</span><span class="n">loss</span><span class="p">]</span>
+        <span class="n">accs</span> <span class="o">+=</span> <span class="p">[</span><span class="n">acc</span><span class="p">]</span>
+    <span class="n">eval_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s">'epoch'</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">models</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span> <span class="s">'test_loss'</span><span class="p">:</span> <span class="n">losses</span><span class="p">,</span> <span class="s">'test_acc'</span><span class="p">:</span> <span class="n">accs</span><span class="p">})</span>
+    <span class="k">return</span> <span class="n">eval_df</span>
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># load and prepare test data</span>
+<span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">Y_train</span><span class="p">,</span> <span class="n">X_val</span><span class="p">,</span> <span class="n">Y_val</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">Y_test</span><span class="p">)</span> <span class="o">=</span> <span class="n">fmc</span><span class="o">.</span><span class="n">load_data</span><span class="p">()</span>
+<span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">Y_train</span><span class="p">,</span> <span class="n">X_val</span><span class="p">,</span> <span class="n">Y_val</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">Y_test</span><span class="p">)</span> <span class="o">=</span> <span class="n">fmc</span><span class="o">.</span><span class="n">prepare_data</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">Y_train</span><span class="p">,</span> <span class="n">X_val</span><span class="p">,</span> <span class="n">Y_val</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">Y_test</span><span class="p">)</span>
+<span class="c">#evaluate models</span>
+<span class="n">epoch_range</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="mi">33</span><span class="p">)</span>
+<span class="n">models</span> <span class="o">=</span> <span class="n">get_models_from_dir</span><span class="p">(</span><span class="s">'models/keras_checkpoints'</span><span class="p">,</span> <span class="n">epoch_range</span><span class="p">)</span>
+<span class="n">model_test_eval_df</span> <span class="o">=</span> <span class="n">model_eval_df</span><span class="p">(</span><span class="n">models</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">Y_test</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Evaluating epoch 15 model:
+
+10000/10000 [==============================] - 26s 3ms/step
+Evaluating epoch 16 model:
+
+10000/10000 [==============================] - 27s 3ms/step
+Evaluating epoch 19 model:
+
+10000/10000 [==============================] - 25s 3ms/step
+Evaluating epoch 24 model:
+
+10000/10000 [==============================] - 27s 3ms/step
+Evaluating epoch 32 model:
+
+10000/10000 [==============================] - 26s 3ms/step
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">plot_performance</span><span class="p">(</span><span class="n">model_df</span><span class="p">):</span>
+    <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+    <span class="n">plt</span><span class="o">.</span><span class="n">subplot</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'loss'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">model_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'train_loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'val_loss'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">model_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'val_loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'test_loss'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">model_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'test_loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">'Epoch'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">'Loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">'Train, val and test loss'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+    
+    <span class="n">plt</span><span class="o">.</span><span class="n">subplot</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'acc'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">model_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'train_acc'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'val_acc'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">model_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'val_acc'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="s">'epoch'</span><span class="p">,</span> <span class="s">'test_acc'</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">model_df</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s">'test_acc'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">'Epoch'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">'Accuracy'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">'Train, val and test accuracy'</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+    
+<span class="n">model_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">history_df</span><span class="p">,</span> <span class="n">model_test_eval_df</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s">'epoch'</span><span class="p">)</span>
+<span class="n">plot_performance</span><span class="p">(</span><span class="n">model_df</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p><img src="/keras_cnn_fashion_mnist/train_tune_test/train_tune_test_files/train_tune_test_43_0.png" alt="png" /></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># epochs ranked by test accuracy</span>
+<span class="n">model_df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s">'test_acc'</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div>
+  <style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>val_loss</th>
+      <th>val_acc</th>
+      <th>loss</th>
+      <th>acc</th>
+      <th>lr</th>
+      <th>epoch</th>
+      <th>test_loss</th>
+      <th>test_acc</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2</td>
+      <td>0.214470</td>
+      <td>0.9339</td>
+      <td>0.099285</td>
+      <td>0.96342</td>
+      <td>0.001</td>
+      <td>19</td>
+      <td>0.198591</td>
+      <td>0.9389</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.231908</td>
+      <td>0.9367</td>
+      <td>0.076089</td>
+      <td>0.97210</td>
+      <td>0.001</td>
+      <td>24</td>
+      <td>0.213586</td>
+      <td>0.9386</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>0.237604</td>
+      <td>0.9386</td>
+      <td>0.055796</td>
+      <td>0.97962</td>
+      <td>0.001</td>
+      <td>32</td>
+      <td>0.220641</td>
+      <td>0.9381</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>0.207615</td>
+      <td>0.9310</td>
+      <td>0.112607</td>
+      <td>0.95914</td>
+      <td>0.001</td>
+      <td>16</td>
+      <td>0.194638</td>
+      <td>0.9362</td>
+    </tr>
+    <tr>
+      <td>0</td>
+      <td>0.200692</td>
+      <td>0.9306</td>
+      <td>0.122466</td>
+      <td>0.95532</td>
+      <td>0.001</td>
+      <td>15</td>
+      <td>0.190690</td>
+      <td>0.9322</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># epochs ranked by test loss</span>
+<span class="n">model_df</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s">'test_loss'</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div>
+  <style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+  <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>val_loss</th>
+      <th>val_acc</th>
+      <th>loss</th>
+      <th>acc</th>
+      <th>lr</th>
+      <th>epoch</th>
+      <th>test_loss</th>
+      <th>test_acc</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>0.200692</td>
+      <td>0.9306</td>
+      <td>0.122466</td>
+      <td>0.95532</td>
+      <td>0.001</td>
+      <td>15</td>
+      <td>0.190690</td>
+      <td>0.9322</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>0.207615</td>
+      <td>0.9310</td>
+      <td>0.112607</td>
+      <td>0.95914</td>
+      <td>0.001</td>
+      <td>16</td>
+      <td>0.194638</td>
+      <td>0.9362</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>0.214470</td>
+      <td>0.9339</td>
+      <td>0.099285</td>
+      <td>0.96342</td>
+      <td>0.001</td>
+      <td>19</td>
+      <td>0.198591</td>
+      <td>0.9389</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.231908</td>
+      <td>0.9367</td>
+      <td>0.076089</td>
+      <td>0.97210</td>
+      <td>0.001</td>
+      <td>24</td>
+      <td>0.213586</td>
+      <td>0.9386</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>0.237604</td>
+      <td>0.9386</td>
+      <td>0.055796</td>
+      <td>0.97962</td>
+      <td>0.001</td>
+      <td>32</td>
+      <td>0.220641</td>
+      <td>0.9381</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>As a compromise between test accuracy and loss, we’ll select the epoch 19 model for the final model.</p>
+
+<h2 id="conclusions">Conclusions</h2>
+
+<p>We found that the default model architecture performed well with a test classifiction accuracy of $\approx 93.9\%$ and a categorical cross entropy loss of $\approx 0.199$.</p>
+
+<p>Some possibilities for model improvement are:</p>
+<ul>
+  <li>Using data augmentation to increase the size of the training set. This is very easy to implement in Keras</li>
+  <li>Better hyperparameter tuning, particularly architecture parameters. This could be done by a more careful definition of the hyperparameter spaces used in <a href="#Analyze-tuning-job-results">Bayesian tuning</a>, or by random search nearby the default hyperparameters</li>
+</ul>
+
+</div>
+
+      </div>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    <script>
+      (function(document) {
+        var toggle = document.querySelector('.sidebar-toggle');
+        var sidebar = document.querySelector('#sidebar');
+        var checkbox = document.querySelector('#sidebar-checkbox');
+
+        document.addEventListener('click', functione. {
+          var target = e.target;
+
+          if(!checkbox.checked ||
+             sidebar.contains(target) ||
+             (target === checkbox || target === toggle)) return;
+
+          checkbox.checked = false;
+        }, false);
+      })(document);
+    </script>
+  </body>
+</html>

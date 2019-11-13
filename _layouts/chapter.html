@@ -1,0 +1,37 @@
+---
+layout: default
+---
+
+<div>
+	<h1> 
+		{% assign chapter = page.title %}
+		{{site.data.chapters[chapter].name}}
+	</h1>
+</div>
+
+
+<div>
+	<h2> 
+		<a href="{{site.baseurl}}/{{chapter}}/{{chapter}}_notes/"> Notes </a>
+	</h2>
+</div>
+
+
+<div>
+	<h2> 
+		Exercises
+	</h2>
+	<ul>
+		{% assign chapter = page.title %}
+		{% for exercise in site.data.chapters[chapter].exercises %}
+		<li>
+			<a href='{{site.baseurl}}/{{chapter}}/{{chapter}}{{exercise.tag}}'> {{exercise.name}}
+			</a>
+		</li>
+		{% endfor %}
+	</ul>
+</div>
+
+<div>
+	{{ content }}
+</div>

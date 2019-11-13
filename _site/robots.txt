@@ -1,0 +1,1 @@
+Sitemap: http://localhost:4000/keras_cnn_fashion_mnist/sitemap.xml
